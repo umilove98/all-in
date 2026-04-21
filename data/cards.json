@@ -1,0 +1,632 @@
+{
+  "meta": {
+    "version": "v2",
+    "total_cards": 45,
+    "card_types": {
+      "hit": "명중률에 기반하여 적을 공격합니다.",
+      "crit": "적을 공격합니다. 치명타 발동이 가능하며 발동시 피해량이 증가합니다.",
+      "fixed": "적을 공격합니다. 배팅에 따라 공격력이 달라집니다.",
+      "utility": "자신에게 이로운 효과를 사용합니다."
+    },
+    "categories": [
+      "attack",
+      "defense",
+      "utility",
+      "signature"
+    ],
+    "common_rules": {
+      "signature_usage_per_game": 1,
+      "signature_unlock_turn": 3,
+      "signature_per_turn_limit": 1,
+      "default_bet_max": 10
+    }
+  },
+  "berserker": [
+    {
+      "id": "B1",
+      "name": "분쇄 일격",
+      "name_en": "Crushing Blow",
+      "type": "hit",
+      "category": "attack",
+      "cost": 0,
+      "damage": 18,
+      "base_acc": 40,
+      "max_bet": 10,
+      "bet_acc": 6,
+      "desc": ""
+    },
+    {
+      "id": "B2",
+      "name": "광폭한 돌진",
+      "name_en": "Frenzied Charge",
+      "type": "hit",
+      "category": "attack",
+      "cost": 0,
+      "damage": 25,
+      "base_acc": 30,
+      "max_bet": 10,
+      "bet_acc": 5,
+      "self_damage_on_miss": 5,
+      "desc": ""
+    },
+    {
+      "id": "B3",
+      "name": "피의 대가",
+      "name_en": "Blood Price",
+      "type": "hit",
+      "category": "attack",
+      "cost": 0,
+      "damage": 22,
+      "base_acc": 50,
+      "max_bet": 10,
+      "bet_acc": 5,
+      "lifesteal": 0.3,
+      "desc": ""
+    },
+    {
+      "id": "B4",
+      "name": "연쇄 베기",
+      "name_en": "Chain Slash",
+      "type": "hit",
+      "category": "attack",
+      "cost": 0,
+      "damage": 10,
+      "base_acc": 60,
+      "max_bet": 10,
+      "bet_acc": 4,
+      "hit_count": 3,
+      "desc": ""
+    },
+    {
+      "id": "B5",
+      "name": "처형",
+      "name_en": "Execute",
+      "type": "hit",
+      "category": "attack",
+      "cost": 0,
+      "damage": 30,
+      "base_acc": 30,
+      "max_bet": 10,
+      "bet_acc": 5,
+      "execute_threshold": 30,
+      "execute_bonus_acc": 20,
+      "desc": ""
+    },
+    {
+      "id": "B6",
+      "name": "광전사의 함성",
+      "name_en": "Berserker's Roar",
+      "type": "utility",
+      "category": "utility",
+      "cost": 0,
+      "max_bet": 0,
+      "next_acc_bonus": 25,
+      "desc": ""
+    },
+    {
+      "id": "B7",
+      "name": "고통 흡수",
+      "name_en": "Pain Absorb",
+      "type": "utility",
+      "category": "defense",
+      "cost": 0,
+      "max_bet": 0,
+      "shield": 12,
+      "desc": ""
+    },
+    {
+      "id": "B8",
+      "name": "광기의 일격",
+      "name_en": "Maniac Strike",
+      "type": "hit",
+      "category": "attack",
+      "cost": 0,
+      "damage": 32,
+      "base_acc": 25,
+      "max_bet": 10,
+      "bet_acc": 6,
+      "self_damage": 8,
+      "desc": ""
+    },
+    {
+      "id": "B9",
+      "name": "강철 피부",
+      "name_en": "Iron Skin",
+      "type": "utility",
+      "category": "defense",
+      "cost": 0,
+      "max_bet": 0,
+      "shield": 15,
+      "desc": ""
+    },
+    {
+      "id": "B10",
+      "name": "광기의 식사",
+      "name_en": "Frenzy Feast",
+      "type": "utility",
+      "category": "utility",
+      "cost": 0,
+      "max_bet": 0,
+      "self_heal": 18,
+      "desc": ""
+    },
+    {
+      "id": "B11",
+      "name": "분노 폭발",
+      "name_en": "Rage Burst",
+      "type": "utility",
+      "category": "utility",
+      "cost": 0,
+      "max_bet": 0,
+      "rage_stack": 1,
+      "desc": ""
+    },
+    {
+      "id": "B12",
+      "name": "도끼 갈기",
+      "name_en": "Axe Sharpen",
+      "type": "utility",
+      "category": "utility",
+      "cost": 0,
+      "max_bet": 0,
+      "search_attack": true,
+      "draw": 1,
+      "desc": ""
+    },
+    {
+      "id": "B13",
+      "name": "최후의 발악",
+      "name_en": "Last Stand",
+      "type": "hit",
+      "category": "attack",
+      "cost": 0,
+      "damage": 40,
+      "base_acc": 50,
+      "max_bet": 10,
+      "bet_acc": 5,
+      "condition": {
+        "self_hp_max": 30
+      },
+      "desc": ""
+    },
+    {
+      "id": "B14",
+      "name": "피의 광기",
+      "name_en": "Blood Madness",
+      "type": "hit",
+      "category": "signature",
+      "signature": true,
+      "cost": 0,
+      "damage": 50,
+      "base_acc": 0,
+      "max_bet": 15,
+      "bet_acc": 6,
+      "desc": ""
+    },
+    {
+      "id": "B15",
+      "name": "베르세르크",
+      "name_en": "Berserk",
+      "type": "utility",
+      "category": "signature",
+      "signature": true,
+      "cost": 0,
+      "max_bet": 0,
+      "berserk_mode": {
+        "turns": 3,
+        "acc_bonus": 20,
+        "damage_bonus": 8,
+        "self_damage_per_turn": 5
+      },
+      "desc": ""
+    }
+  ],
+  "gambler": [
+    {
+      "id": "G1",
+      "name": "카드 던지기",
+      "name_en": "Card Throw",
+      "type": "crit",
+      "category": "attack",
+      "cost": 0,
+      "damage": 15,
+      "base_crit": 30,
+      "crit_mult": 2.5,
+      "max_bet": 10,
+      "bet_crit": 4,
+      "desc": ""
+    },
+    {
+      "id": "G2",
+      "name": "야바위",
+      "name_en": "Shell Game",
+      "type": "crit",
+      "category": "attack",
+      "cost": 0,
+      "damage_range": [
+        8,
+        22
+      ],
+      "base_crit": 50,
+      "crit_mult": 2.5,
+      "max_bet": 10,
+      "bet_crit": 3,
+      "desc": ""
+    },
+    {
+      "id": "G3",
+      "name": "마크된 단검",
+      "name_en": "Marked Dagger",
+      "type": "crit",
+      "category": "attack",
+      "cost": 0,
+      "damage": 18,
+      "base_crit": 40,
+      "crit_mult": 2.5,
+      "max_bet": 10,
+      "bet_crit": 5,
+      "ignore_shield": true,
+      "desc": ""
+    },
+    {
+      "id": "G4",
+      "name": "잭팟",
+      "name_en": "Jackpot",
+      "type": "utility",
+      "category": "attack",
+      "cost": 0,
+      "max_bet": 10,
+      "jackpot": {
+        "dice": 10,
+        "bet_bonus_div": 2,
+        "results": {
+          "1": {
+            "self_damage": 25
+          },
+          "10": {
+            "damage": 60
+          },
+          "2-5": {
+            "damage": 15
+          },
+          "6-9": {
+            "damage": 35
+          }
+        }
+      },
+      "desc": ""
+    },
+    {
+      "id": "G5",
+      "name": "더블 다운",
+      "name_en": "Double Down",
+      "type": "utility",
+      "category": "utility",
+      "cost": 0,
+      "max_bet": 0,
+      "repeat_last": true,
+      "desc": ""
+    },
+    {
+      "id": "G6",
+      "name": "올인 베팅",
+      "name_en": "All-In Bet",
+      "type": "crit",
+      "category": "attack",
+      "cost": 0,
+      "damage": 20,
+      "base_crit": 20,
+      "crit_mult": 3.5,
+      "max_bet": 10,
+      "bet_crit": 6,
+      "desc": ""
+    },
+    {
+      "id": "G7",
+      "name": "야바위꾼의 손",
+      "name_en": "Trickster's Hand",
+      "type": "hit",
+      "category": "attack",
+      "cost": 0,
+      "damage": 15,
+      "base_acc": 70,
+      "max_bet": 10,
+      "bet_acc": 3,
+      "draw": 1,
+      "desc": ""
+    },
+    {
+      "id": "G8",
+      "name": "마크된 카드",
+      "name_en": "Marked Card",
+      "type": "crit",
+      "category": "attack",
+      "cost": 0,
+      "damage": 22,
+      "base_crit": 50,
+      "crit_mult": 2,
+      "max_bet": 10,
+      "bet_crit": 5,
+      "desc": ""
+    },
+    {
+      "id": "G9",
+      "name": "회피의 기술",
+      "name_en": "Evasion Art",
+      "type": "utility",
+      "category": "defense",
+      "cost": 0,
+      "max_bet": 0,
+      "dodge_next": 50,
+      "desc": ""
+    },
+    {
+      "id": "G10",
+      "name": "손패 바꾸기",
+      "name_en": "Redraw",
+      "type": "utility",
+      "category": "utility",
+      "cost": 0,
+      "max_bet": 0,
+      "redraw_hand": true,
+      "desc": ""
+    },
+    {
+      "id": "G11",
+      "name": "미래 보기",
+      "name_en": "Foresight",
+      "type": "utility",
+      "category": "utility",
+      "cost": 0,
+      "max_bet": 0,
+      "deck_peek": 3,
+      "next_crit_bonus": 20,
+      "desc": ""
+    },
+    {
+      "id": "G12",
+      "name": "블러프",
+      "name_en": "Bluff",
+      "type": "utility",
+      "category": "defense",
+      "cost": 0,
+      "max_bet": 0,
+      "force_miss_next": 50,
+      "desc": ""
+    },
+    {
+      "id": "G13",
+      "name": "독 바르기",
+      "name_en": "Poison Coat",
+      "type": "utility",
+      "category": "utility",
+      "cost": 0,
+      "max_bet": 0,
+      "poison": {
+        "damage": 4,
+        "turns": 3,
+        "ignore_shield": true
+      },
+      "desc": ""
+    },
+    {
+      "id": "G14",
+      "name": "마크된 운명",
+      "name_en": "Marked Fate",
+      "type": "utility",
+      "category": "signature",
+      "signature": true,
+      "cost": 0,
+      "max_bet": 0,
+      "guarantee_next_crit": true,
+      "desc": ""
+    },
+    {
+      "id": "G15",
+      "name": "올인",
+      "name_en": "All-In",
+      "type": "crit",
+      "category": "signature",
+      "signature": true,
+      "cost": 0,
+      "damage": 25,
+      "base_crit": 0,
+      "crit_mult": 3,
+      "max_bet": 12,
+      "bet_crit": 5,
+      "self_damage_on_miss": "bet_amount",
+      "desc": ""
+    }
+  ],
+  "warden": [
+    {
+      "id": "W1",
+      "name": "정의의 일격",
+      "name_en": "Justice Strike",
+      "type": "fixed",
+      "category": "attack",
+      "cost": 0,
+      "damage": 10,
+      "max_bet": 10,
+      "bet_damage": 1,
+      "desc": ""
+    },
+    {
+      "id": "W2",
+      "name": "처벌의 빛",
+      "name_en": "Punishing Light",
+      "type": "fixed",
+      "category": "attack",
+      "cost": 0,
+      "damage": 12,
+      "max_bet": 10,
+      "bet_damage": 1,
+      "punish_missed_prev": 8,
+      "desc": ""
+    },
+    {
+      "id": "W3",
+      "name": "약점 포착",
+      "name_en": "Weakness Found",
+      "type": "fixed",
+      "category": "attack",
+      "cost": 0,
+      "damage": 6,
+      "max_bet": 10,
+      "bet_damage": 1,
+      "silence_random": 1,
+      "desc": ""
+    },
+    {
+      "id": "W4",
+      "name": "결박의 사슬",
+      "name_en": "Binding Chains",
+      "type": "fixed",
+      "category": "attack",
+      "cost": 0,
+      "damage": 8,
+      "max_bet": 10,
+      "bet_damage": 1,
+      "opponent_max_bet_next": 3,
+      "desc": ""
+    },
+    {
+      "id": "W5",
+      "name": "정의 집행",
+      "name_en": "Judgment",
+      "type": "fixed",
+      "category": "attack",
+      "cost": 0,
+      "damage": 14,
+      "max_bet": 10,
+      "bet_damage": 2,
+      "judgment_bonus": 8,
+      "desc": ""
+    },
+    {
+      "id": "W6",
+      "name": "인내의 반격",
+      "name_en": "Patience Retort",
+      "type": "fixed",
+      "category": "attack",
+      "cost": 0,
+      "damage": 0,
+      "max_bet": 10,
+      "bet_damage": 0,
+      "patience": {
+        "div": 3,
+        "cap": 35
+      },
+      "desc": ""
+    },
+    {
+      "id": "W7",
+      "name": "방패 강타",
+      "name_en": "Shield Bash",
+      "type": "fixed",
+      "category": "attack",
+      "cost": 0,
+      "damage": 6,
+      "max_bet": 10,
+      "bet_damage": 1,
+      "self_shield": 8,
+      "desc": ""
+    },
+    {
+      "id": "W8",
+      "name": "신성한 화살",
+      "name_en": "Holy Arrow",
+      "type": "hit",
+      "category": "attack",
+      "cost": 0,
+      "damage": 16,
+      "base_acc": 80,
+      "max_bet": 10,
+      "bet_acc": 2,
+      "desc": ""
+    },
+    {
+      "id": "W9",
+      "name": "방패 벽",
+      "name_en": "Shield Wall",
+      "type": "utility",
+      "category": "defense",
+      "cost": 0,
+      "max_bet": 0,
+      "shield": 18,
+      "desc": ""
+    },
+    {
+      "id": "W10",
+      "name": "신성한 보호",
+      "name_en": "Holy Aegis",
+      "type": "utility",
+      "category": "utility",
+      "cost": 0,
+      "max_bet": 0,
+      "self_heal": 20,
+      "desc": ""
+    },
+    {
+      "id": "W11",
+      "name": "정화",
+      "name_en": "Cleanse",
+      "type": "utility",
+      "category": "utility",
+      "cost": 0,
+      "max_bet": 0,
+      "self_heal": 8,
+      "cleanse": true,
+      "desc": ""
+    },
+    {
+      "id": "W12",
+      "name": "예지",
+      "name_en": "Prescience",
+      "type": "utility",
+      "category": "utility",
+      "cost": 0,
+      "max_bet": 0,
+      "opponent_deck_peek": 3,
+      "dodge_next": 30,
+      "desc": ""
+    },
+    {
+      "id": "W13",
+      "name": "전열 정비",
+      "name_en": "Regroup",
+      "type": "utility",
+      "category": "utility",
+      "cost": 0,
+      "max_bet": 0,
+      "draw": 2,
+      "desc": ""
+    },
+    {
+      "id": "W14",
+      "name": "무효 선언",
+      "name_en": "Null Declaration",
+      "type": "utility",
+      "category": "signature",
+      "signature": true,
+      "cost": 0,
+      "max_bet": 0,
+      "negate_turns": 3,
+      "negate_ratio": 0.5,
+      "desc": ""
+    },
+    {
+      "id": "W15",
+      "name": "최후의 심판",
+      "name_en": "Final Judgment",
+      "type": "fixed",
+      "category": "signature",
+      "signature": true,
+      "cost": 0,
+      "damage": 0,
+      "max_bet": 0,
+      "final_judgment": true,
+      "desc": ""
+    }
+  ]
+}

@@ -1,0 +1,158 @@
+{
+  "meta": {
+    "version": "v2",
+    "total_boons": 10,
+    "selection": {
+      "default_options": 3,
+      "gambler_reroll_count": 1,
+      "pick_count": 1,
+      "pick_timer_seconds": 15
+    },
+    "categories": {
+      "steady": "안정형 - 생존력 증가, 장기전 유리",
+      "aggressive": "공격형 - 딜 증폭, 단기 결착",
+      "risky": "도박형 - 변수 창출, 하이리스크 하이리턴",
+      "utility": "유틸형 - 구조적 이점, 콤보 빌드업"
+    }
+  },
+  "boons": [
+    {
+      "id": "BN01",
+      "name": "강철 심장",
+      "name_en": "Steel Heart",
+      "emoji": "🩸",
+      "category": "steady",
+      "effect": {
+        "hp_bonus": 30
+      },
+      "desc": "시작 HP 100 → 130.",
+      "synergy": ["컨트롤러 픽", "인내의 반격", "피의 대가"],
+      "counter_against": ["광전사"]
+    },
+    {
+      "id": "BN02",
+      "name": "견고한 의지",
+      "name_en": "Steadfast Will",
+      "emoji": "🛡️",
+      "category": "steady",
+      "effect": {
+        "damage_reduction": 2,
+        "min_damage": 1
+      },
+      "desc": "받는 모든 데미지 -2 (최소 1).",
+      "synergy": ["연쇄 베기 카운터", "컨트롤러"],
+      "counter_against": ["도박사 크리 난무"]
+    },
+    {
+      "id": "BN03",
+      "name": "회복의 가호",
+      "name_en": "Blessing of Recovery",
+      "emoji": "💚",
+      "category": "steady",
+      "effect": {
+        "heal_per_turn": 5
+      },
+      "desc": "매 턴 시작 시 HP +5.",
+      "synergy": ["컨트롤러", "장기전 빌드"],
+      "counter_against": ["도박사"]
+    },
+    {
+      "id": "BN04",
+      "name": "칼날의 축복",
+      "name_en": "Blade Blessing",
+      "emoji": "⚔️",
+      "category": "aggressive",
+      "effect": {
+        "damage_bonus_all": 3
+      },
+      "desc": "모든 카드 데미지 +3 (명중/크리/확정 상관없이).",
+      "synergy": ["광전사", "연쇄 베기 (+9뎀)", "다회타 카드"],
+      "counter_against": []
+    },
+    {
+      "id": "BN05",
+      "name": "정밀의 눈",
+      "name_en": "Precise Eye",
+      "emoji": "🎯",
+      "category": "aggressive",
+      "effect": {
+        "acc_bonus": 15,
+        "crit_bonus": 10
+      },
+      "desc": "모든 명중률 +15%, 크리율 +10%.",
+      "synergy": ["광전사", "도박사"],
+      "counter_against": [],
+      "note": "컨트롤러 확정 카드에는 효과 없음"
+    },
+    {
+      "id": "BN06",
+      "name": "광기의 인장",
+      "name_en": "Mark of Madness",
+      "emoji": "🔥",
+      "category": "aggressive",
+      "effect": {
+        "bet_acc_bonus_per": 1,
+        "bet_crit_bonus_per": 1
+      },
+      "desc": "베팅 1당 추가 명중률/크리율 +1% (카드 자체 효과에 더함).",
+      "synergy": ["광전사 베팅 전략", "분쇄 일격 풀베팅"],
+      "counter_against": []
+    },
+    {
+      "id": "BN07",
+      "name": "행운의 동전",
+      "name_en": "Lucky Coin",
+      "emoji": "🎰",
+      "category": "risky",
+      "effect": {
+        "double_proc_chance": 30
+      },
+      "desc": "카드 사용 시마다 30% 확률로 데미지/효과 ×2.",
+      "synergy": ["도박사 컨셉"],
+      "counter_against": [],
+      "note": "이론상 120뎀 이상 폭딜 가능"
+    },
+    {
+      "id": "BN08",
+      "name": "피의 환원",
+      "name_en": "Blood Refund",
+      "emoji": "💸",
+      "category": "risky",
+      "effect": {
+        "bet_refund_ratio": 0.5
+      },
+      "desc": "베팅한 HP의 50%를 즉시 회복.",
+      "synergy": ["광전사", "도박사"],
+      "counter_against": [],
+      "note": "컨트롤러 픽 시 거의 무용지물 (베팅 안 함)"
+    },
+    {
+      "id": "BN09",
+      "name": "풍요의 손",
+      "name_en": "Abundant Hand",
+      "emoji": "🃏",
+      "category": "utility",
+      "effect": {
+        "extra_card_per_turn": 1
+      },
+      "desc": "매 턴 카드 사용 횟수 +1 (2 → 3장).",
+      "synergy": ["모든 직업"],
+      "counter_against": [],
+      "note": "게임 템포가 급격히 빨라짐. 4턴 결착 가능"
+    },
+    {
+      "id": "BN10",
+      "name": "예지의 눈동자",
+      "name_en": "Eye of Prescience",
+      "emoji": "👁️",
+      "category": "utility",
+      "effect": {
+        "starting_hand_bonus": 3,
+        "hand_size": 7
+      },
+      "desc": "시작 시 손패 +3 (5장 → 8장), 핸드 사이즈 5 → 7.",
+      "synergy": ["도박사 더블다운 콤보", "광전사 함성+시그니처 콤보"],
+      "counter_against": []
+    }
+  ]
+}
