@@ -63,6 +63,11 @@ function renderJoinForm(root: HTMLElement, app: App) {
     <div class="sceneRoot">
       ${sceneChromeHtml()}
       <div class="wrFrame">
+        <button id="wrBackBtn" class="wrBackBtn" aria-label="로비로">
+          <span class="wrBackArrow">←</span>
+          <span>로비</span>
+        </button>
+
         <div class="wrRoomPlaque">
           <div class="wrRoomLabel">Room Code</div>
           <div class="wrRoomCodeBox">
@@ -100,6 +105,9 @@ function renderJoinForm(root: HTMLElement, app: App) {
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter") void submit();
   });
+  stage.querySelector<HTMLButtonElement>("#wrBackBtn")?.addEventListener("click", () => {
+    app.navigateHome();
+  });
 }
 
 // =====================================================================
@@ -111,7 +119,9 @@ function renderWaitingRoomScene(root: HTMLElement, app: App) {
   const roomCode = s.roomId ?? "??????";
   const me = s.players.find((p) => p.connectionId === s.myId);
   const other = s.players.find((p) => p.connectionId !== s.myId);
-  const hostName = me?.name ?? "YOU";
+  // 서버 room 브로드캐스트가 도착하기 전에도 내가 입력한 이름은 즉시 보여준다.
+  // me 가 있으면 서버 쪽 이름(trim 적용된 공식 이름) 우선.
+  const hostName = me?.name || s.name || "YOU";
   const guestName = other?.name ?? "— EMPTY —";
 
   // phase — 서버 상태 기반
@@ -126,6 +136,11 @@ function renderWaitingRoomScene(root: HTMLElement, app: App) {
       ${sceneChromeHtml()}
 
       <div class="wrFrame">
+        <button id="wrBackBtn" class="wrBackBtn" aria-label="로비로">
+          <span class="wrBackArrow">←</span>
+          <span>로비</span>
+        </button>
+
         <div class="wrRoomPlaque">
           <div class="wrRoomLabel">Room Code</div>
           <div class="wrRoomCodeBox">
@@ -163,6 +178,10 @@ function renderWaitingRoomScene(root: HTMLElement, app: App) {
       </div>
     </div>
   `;
+
+  stage.querySelector<HTMLButtonElement>("#wrBackBtn")?.addEventListener("click", () => {
+    app.navigateHome();
+  });
 
   const copyBtn = stage.querySelector<HTMLButtonElement>("#wrCopyBtn");
   copyBtn?.addEventListener("click", () => {
@@ -217,7 +236,7 @@ function copyToClipboard(text: string): boolean {
 }
 
 function subtitleFor(phase: "waiting-alone" | "waiting-pair"): string {
-  if (phase === "waiting-alone") return "상대를 기다린다…";
+  if (phase === "waiting-alone") return "";
   if (phase === "waiting-pair") return "결투자가 모였다";
   return "";
 }
@@ -226,7 +245,7 @@ function bottomBarHtml(phase: "waiting-alone" | "waiting-pair"): string {
   if (phase === "waiting-alone") {
     return `
       <button class="sceneBtn wrStartButton" disabled>START</button>
-      <div class="wrHint">상대가 입장해야 시작할 수 있다</div>
+      <div class="wrHint">상대를 기다리고 있습니다.</div>
     `;
   }
   // waiting-pair — 서버가 자동으로 coin_toss 로 넘어가므로 START 는

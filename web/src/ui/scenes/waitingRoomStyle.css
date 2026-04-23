@@ -7,6 +7,34 @@
   padding: 70px 80px 64px;
 }
 
+/* 좌상단 뒤로가기 */
+.wrBackBtn {
+  position: absolute; top: 32px; left: 36px;
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 8px 16px;
+  background: rgba(12,6,16,0.55);
+  border: 1px solid rgba(201,148,84,0.35);
+  color: rgba(232,217,184,0.82);
+  font-family: 'Cinzel', serif;
+  font-size: 12px; letter-spacing: 4px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease, transform 160ms ease;
+  z-index: 12;
+}
+.wrBackBtn:hover {
+  background: rgba(28,14,22,0.75);
+  border-color: rgba(217,112,48,0.55);
+  color: #e8d9b8;
+  transform: translateX(-2px);
+}
+.wrBackArrow {
+  font-family: 'Cinzel', serif;
+  font-size: 14px;
+  letter-spacing: 0;
+  color: rgba(217,112,48,0.9);
+}
+
 /* Top: room code plaque */
 .wrRoomPlaque {
   display: flex; flex-direction: column; align-items: center; gap: 10px;
