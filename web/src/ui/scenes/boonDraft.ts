@@ -12,8 +12,9 @@
  */
 
 import { App } from "../../app";
-import { Boon, getBoonById } from "../../engine";
+import { Boon, ClassName, getBoonById } from "../../engine";
 import { ensureStage } from "../sceneStage";
+import { CLASS_DEFS } from "./classPick";
 
 const ACTIVE_CLASS = "bd-active";
 
@@ -539,13 +540,13 @@ function curtainHtml(app: App, mySelectedId: string | null): string {
         <div class="draftCurtainTitle">전투 개시</div>
         <div class="draftCurtainSub">— UNDERGROUND DUEL —</div>
         <div class="draftCurtainVersus">
-          ${versusSideHtml("you", myName, myBoon)}
+          ${versusSideHtml("you", myName, me?.className ?? null, myBoon)}
           <div class="dcvSep">
             <span class="dcvSepLine"></span>
             <span class="dcvVs">VS</span>
             <span class="dcvSepLine"></span>
           </div>
-          ${versusSideHtml("rival", oppName, oppBoon)}
+          ${versusSideHtml("rival", oppName, opp?.className ?? null, oppBoon)}
         </div>
       </div>
     </div>
@@ -555,6 +556,7 @@ function curtainHtml(app: App, mySelectedId: string | null): string {
 function versusSideHtml(
   kind: "you" | "rival",
   playerName: string,
+  className: ClassName | null,
   boon: Boon | null,
 ): string {
   const meta = boon
@@ -567,10 +569,23 @@ function versusSideHtml(
   const accent = meta?.accent ?? "#c99454";
   const hue = meta?.hue ?? "rgba(201,148,84,0.16)";
   const style = `--accent:${accent};--hue:${hue}`;
+
+  const cls = className ? CLASS_DEFS[className] : null;
+  const classBadge = cls
+    ? `
+      <div class="dcvClassBadge" style="--cls-accent:${cls.accent};--cls-hue:${cls.hue}">
+        <span class="dcvClassGlyph">${cls.glyph}</span>
+        <span class="dcvClassName">${escapeHtml(cls.nameKo)}</span>
+        <span class="dcvClassEn">${escapeHtml(cls.nameEn)}</span>
+      </div>
+    `
+    : "";
+
   return `
     <div class="dcvSide dcvSide-${kind}" style="${style}">
       <div class="dcvSideLabel">${kind === "you" ? "YOU" : "RIVAL"}</div>
       <div class="dcvSidePlayer">${escapeHtml(playerName)}</div>
+      ${classBadge}
       <div class="dcvBoonEmblem">
         <div class="dcvBoonRing"></div>
         <div class="dcvBoonGlyph">${glyph}</div>

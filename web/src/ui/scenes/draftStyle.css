@@ -701,6 +701,33 @@
   padding-left: 3px;
   margin-bottom: 6px;
 }
+.dcvClassBadge {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 5px 14px;
+  margin-top: 4px;
+  border: 1px solid var(--cls-accent);
+  background:
+    radial-gradient(ellipse at center, var(--cls-hue), transparent 70%),
+    rgba(0,0,0,0.45);
+  box-shadow: 0 0 14px var(--cls-hue);
+}
+.dcvClassGlyph {
+  font-size: 18px;
+  filter: drop-shadow(0 0 6px var(--cls-hue));
+}
+.dcvClassName {
+  font-family: 'Noto Serif KR', serif;
+  font-size: 13px; font-weight: 700;
+  color: var(--cls-accent);
+  text-shadow: 0 0 10px var(--cls-hue);
+}
+.dcvClassEn {
+  font-family: 'Cinzel', serif;
+  font-size: 9px; letter-spacing: 3px;
+  color: rgba(232,217,184,0.45);
+  padding-left: 2px;
+}
+
 .dcvBoonEmblem {
   position: relative;
   width: 84px; height: 84px;

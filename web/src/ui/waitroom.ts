@@ -57,8 +57,17 @@ export function renderWaitroom(root: HTMLElement, app: App): void {
 // 닉네임 입력 (프로토타입에 없는 상태 — 톤 맞춘 패널)
 // =====================================================================
 
+function getCachedName(): string {
+  try {
+    return localStorage.getItem("allin.playerName") ?? "";
+  } catch {
+    return "";
+  }
+}
+
 function renderJoinForm(root: HTMLElement, app: App) {
   const stage = ensureStage(root, ACTIVE_CLASS);
+  const cachedName = getCachedName();
   stage.innerHTML = `
     <div class="sceneRoot">
       ${sceneChromeHtml()}
@@ -81,7 +90,8 @@ function renderJoinForm(root: HTMLElement, app: App) {
         <div class="wrJoinBox">
           <label class="wrJoinLabel" for="wrNameInput">HOST</label>
           <input id="wrNameInput" class="wrJoinInput" type="text"
-            maxlength="16" placeholder="나의 이름" autocomplete="off" spellcheck="false" />
+            maxlength="16" placeholder="나의 이름" autocomplete="off" spellcheck="false"
+            value="${escapeHtml(cachedName)}" />
         </div>
 
         <div class="wrBottomBar">
@@ -95,6 +105,7 @@ function renderJoinForm(root: HTMLElement, app: App) {
 
   const input = stage.querySelector<HTMLInputElement>("#wrNameInput")!;
   input.focus();
+  if (input.value) input.select();
   const submit = async () => {
     const name = (input.value || "").trim() || "Player";
     await app.joinRoom(app.state.roomId!, name);

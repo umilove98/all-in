@@ -18,7 +18,7 @@ const PICK_TIMER_SECONDS = 30;
 /** 선픽 확정 후 후픽 단계로 넘어가기 전 브릿지 (디자인과 동일 1.4s). */
 const FIRST_PICKED_BRIDGE_MS = 1400;
 
-interface ClassDef {
+export interface ClassDef {
   nameKo: string;
   nameEn: string;
   role: string;
@@ -31,7 +31,7 @@ interface ClassDef {
   cornerGlyph: string;
 }
 
-const CLASS_DEFS: Record<ClassName, ClassDef> = {
+export const CLASS_DEFS: Record<ClassName, ClassDef> = {
   berserker: {
     nameKo: "광전사",
     nameEn: "BERSERKER",

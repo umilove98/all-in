@@ -206,6 +206,14 @@ export class App {
     this.state.name = name || "Player";
     this.state.roomId = roomId.toUpperCase();
     this.state.error = null;
+    // 이름 로컬 캐시 — 다음 접속/방입장 시 자동 입력용
+    try {
+      if (this.state.name && this.state.name !== "Player") {
+        localStorage.setItem("allin.playerName", this.state.name);
+      }
+    } catch {
+      /* Safari private mode 등 localStorage 비활성 시 무시 */
+    }
 
     const client = new AllinClient(getPartyHost(), this.state.roomId);
     this.state.client = client;
