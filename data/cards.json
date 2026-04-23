@@ -626,7 +626,7 @@
       "damage": 0,
       "max_bet": 0,
       "final_judgment": true,
-      "desc": ""
+      "desc": "상대가 지금까지 베팅한 HP 총합만큼 확정 피해. 베팅 불가, 명중 확정."
     }
   ]
 }

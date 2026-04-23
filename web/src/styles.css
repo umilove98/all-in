@@ -1,196 +1,44 @@
-/* ALL-IN 전역 스타일. Phase 3 UI 최소 뼈대. */
+/* ALL-IN — design handoff 기반 전역 스타일. 레거시 에셋 기반 스타일은 모두
+   제거되었다. 각 화면(Main / Waiting / Class Pick / Boon Draft / Underground
+   Duel / Ending) 은 자체 스코프된 .xx-scene 클래스 아래에서 스타일을 관리
+   한다. 공통 토큰과 스테이지 베이스만 이 파일 최상단에 둔다. */
+
+@import url("https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700;900&family=IM+Fell+English:ital@0;1&family=JetBrains+Mono:wght@400;700&family=Noto+Serif+KR:wght@400;700&display=swap");
 
 :root {
-  --bg: #0f1115;
-  --bg-alt: #161a22;
-  --fg: #eef0f4;
-  --muted: #8892a1;
-  --accent: #e23a3a;
-  --ok: #3dbf5a;
-  --warn: #f5b031;
-  --border: #2a303a;
-  --berserker: #ff4d3d;
-  --gambler: #d6a83e;
-  --warden: #5b8def;
+  --scene-gold:      #f0cd82;
+  --scene-gold-dim:  #b89554;
+  --scene-parch:     #fff4d6;
+  --scene-parch-dim: #dcc79b;
+  --scene-ember:     #ff9040;
+  --scene-blood:     #a0303a;
+  --scene-ink:       #120810;
+  /* Class accents (사용 시 해당 씬에서 로컬 변수로 재지정) */
+  --berserker: #d97030;
+  --gambler:   #b07cd9;
+  --warden:    #6fa8c9;
 }
 
-* {
-  box-sizing: border-box;
-}
+* { box-sizing: border-box; }
 
 html, body {
   margin: 0;
   padding: 0;
-  min-height: 100vh;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans KR", sans-serif;
-  background-color: var(--bg);
-  color: var(--fg);
+  background: #000;
+  color: var(--scene-parch);
+  font-family: "IM Fell English", "Noto Serif KR", serif;
+  overflow: hidden;
+  height: 100vh;
+  width: 100vw;
+  user-select: none;
 }
 
-/* 화면별 배경 이미지 (assets/backgrounds/*.png).
-   어두운 오버레이를 위에 깔아 UI 가독성 확보. */
-body {
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
-  background-attachment: fixed;
-  transition: background-image 0.6s ease;
-  position: relative;
-}
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  background: rgba(8, 10, 14, 0.58);
-  pointer-events: none;
-  z-index: 0;
-}
+/* 각 씬이 자체 body.{prefix}-active 클래스를 활성화하면 전체 화면을
+   덮는다. #app/#fx-root 는 스테이지 위에 얹힌다. */
 #app, #fx-root {
   position: relative;
   z-index: 1;
 }
-
-body.screen-home {
-  background-image: url("/backgrounds/lobby.png");
-}
-body.screen-lobby {
-  background-image: url("/backgrounds/lobby.png");
-}
-body.screen-pick-class {
-  background-image: url("/backgrounds/class_select.jpeg");
-}
-body.screen-pick-boon {
-  background-image: url("/backgrounds/boon_select.png");
-}
-body.screen-battle {
-  background-image: url("/backgrounds/gameboard.png");
-}
-
-button {
-  font: inherit;
-  color: inherit;
-  background: var(--bg-alt);
-  border: 1px solid var(--border);
-  padding: 10px 18px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: border 0.15s, background 0.15s;
-}
-
-button:hover:not(:disabled) {
-  border-color: var(--accent);
-}
-
-button:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-input[type="text"] {
-  font: inherit;
-  color: inherit;
-  background: var(--bg-alt);
-  border: 1px solid var(--border);
-  padding: 10px 14px;
-  border-radius: 6px;
-  width: 100%;
-}
-
-input[type="text"]:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-#app {
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-}
-
-.card {
-  background: var(--bg-alt);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 24px;
-  max-width: 480px;
-  width: 100%;
-}
-
-h1 {
-  margin: 0 0 8px;
-  font-size: 28px;
-  letter-spacing: 0.02em;
-}
-
-h1 small {
-  color: var(--muted);
-  font-size: 15px;
-  font-weight: 400;
-  margin-left: 8px;
-}
-
-.row {
-  display: flex;
-  gap: 8px;
-  margin-top: 12px;
-}
-
-.row > * {
-  flex: 1;
-}
-
-.muted {
-  color: var(--muted);
-  font-size: 14px;
-}
-
-.accent {
-  color: var(--accent);
-}
-
-.divider {
-  border-top: 1px solid var(--border);
-  margin: 20px 0;
-}
-
-/* ---- 대기실 ---- */
-
-.room-code {
-  font-family: "SF Mono", Menlo, monospace;
-  font-size: 32px;
-  letter-spacing: 0.15em;
-  padding: 12px 20px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  text-align: center;
-  user-select: all;
-}
-
-.slot {
-  display: flex;
-  justify-content: space-between;
-  padding: 12px 16px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  margin-top: 8px;
-}
-
-.slot.empty {
-  color: var(--muted);
-  font-style: italic;
-}
-
-.error {
-  color: var(--accent);
-  margin-top: 12px;
-  font-size: 14px;
-}
-
-/* ---- 전역 연출 (#fx-root) ---- */
 
 #fx-root {
   position: fixed;
@@ -200,46 +48,17 @@ h1 small {
 }
 #fx-root:empty { display: none; }
 
-.fx-cointoss {
-  position: absolute;
+/* 1600×1000 가상 스테이지 래퍼. 디자인 프로토타입의 #stageWrap/#stage 에 해당. */
+.scene-stage-wrap {
+  position: fixed;
   inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 18px;
-  background: radial-gradient(ellipse at center, rgba(30, 35, 45, 0.92) 0%, rgba(10, 12, 16, 0.98) 70%);
-  animation: fxFadeIn 0.2s ease-out, fxFadeOut 0.4s ease-in 1.8s forwards;
+  background: #000;
+  overflow: hidden;
+  z-index: 2;
 }
-@keyframes fxFadeIn { from { opacity: 0; } to { opacity: 1; } }
-@keyframes fxFadeOut { from { opacity: 1; } to { opacity: 0; } }
-
-.coin {
-  font-size: 140px;
-  line-height: 1;
-  filter: drop-shadow(0 6px 24px rgba(214, 168, 62, 0.45));
-  animation: coinSpin 1.4s cubic-bezier(0.2, 0.6, 0.25, 1) forwards;
-  transform-origin: center;
-}
-@keyframes coinSpin {
-  0%   { transform: rotateY(0)      scale(0.5); opacity: 0; }
-  10%  { transform: rotateY(180deg) scale(1);   opacity: 1; }
-  100% { transform: rotateY(1440deg) scale(1);  opacity: 1; }
-}
-
-.fx-subtitle {
-  font-size: 14px;
-  letter-spacing: 0.1em;
-}
-
-.fx-coin-result {
-  font-size: 28px;
-  font-weight: 700;
-  opacity: 0;
-  animation: fxResultIn 0.45s ease-out 1.35s forwards;
-}
-.fx-coin-result .accent { color: var(--accent); }
-@keyframes fxResultIn {
-  0%   { opacity: 0; transform: translateY(12px) scale(0.9); }
-  100% { opacity: 1; transform: translateY(0)    scale(1); }
+.scene-stage {
+  position: absolute;
+  width: 1600px;
+  height: 1000px;
+  transform-origin: 0 0;
 }

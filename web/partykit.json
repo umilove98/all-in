@@ -2,5 +2,6 @@
   "$schema": "https://www.partykit.io/schema.json",
   "name": "allin",
   "main": "party/server.ts",
+  "serve": "./dist",
   "compatibilityDate": "2024-09-01"
 }

@@ -68,7 +68,15 @@ export class AllinClient {
 }
 
 export function getPartyHost(): string {
-  return import.meta.env.VITE_PARTYKIT_HOST ?? "127.0.0.1:1999";
+  // 1) 명시적 환경변수 우선 (Vercel 등 분리 배포 대비)
+  const envHost = import.meta.env.VITE_PARTYKIT_HOST;
+  if (envHost) return envHost;
+  // 2) 프로덕션 빌드는 같은 도메인에서 서빙된다고 가정 (PartyKit `serve: "./dist"`)
+  if (import.meta.env.PROD && typeof window !== "undefined") {
+    return window.location.host;
+  }
+  // 3) 로컬 dev 기본값 — `partykit dev` 포트
+  return "127.0.0.1:1999";
 }
 
 export function generateRoomCode(length = 6): string {

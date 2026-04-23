@@ -3,7 +3,7 @@
  * phase 에 따라 화면 전환.
  */
 
-import { Card, ClassName } from "./engine";
+import { Card, ClassName, getCardById } from "./engine";
 
 import { AllinClient, generateRoomCode, getPartyHost } from "./net/client";
 import {
@@ -16,6 +16,9 @@ import {
 } from "./net/protocol";
 import { renderLobby } from "./ui/lobby";
 import { renderWaitroom } from "./ui/waitroom";
+import { resetDuelState } from "./ui/scenes/duel";
+import { resetBoonDraftState } from "./ui/scenes/boonDraft";
+import { resetClassPickState } from "./ui/scenes/classPick";
 
 // ---- 타이밍 헬퍼 (ms) ----
 
@@ -25,8 +28,15 @@ function wait(ms: number): Promise<void> {
 
 function rollDurationMs(evt: CardPlayedMsg): number {
   if (evt.cardId === "G4") return 0; // 잭팟은 별도 animateJackpotRoll
-  // 룰렛 스핀 — 3초. 이 값을 바꾸면 .roulette-wheel 의 CSS animation 시간도 같이 조정할 것.
-  return 3000;
+  // Fixed 타입 / Utility 카드는 룰렛 없이 즉시 시전 (디자인 요구)
+  try {
+    const c = getCardById(evt.cardId);
+    if (c.type === "fixed" || c.type === "utility") return 0;
+  } catch {
+    /* unknown card — fallback to default */
+  }
+  // 룰렛 스핀 — 디자인의 2.5s CSS transition + 여유.
+  return 2800;
 }
 
 function resultDurationMs(evt: CardPlayedMsg): number {
@@ -81,6 +91,9 @@ export interface AppState {
     p1Stats: PlayerStatsPublic;
     p2Stats: PlayerStatsPublic;
   } | null;
+  /** ended 수신 시각 + 고정 딜레이. 이 시간 전엔 ending 씬을 띄우지 않고
+   *  듀얼 씬 위에 finalBlow 오버레이를 재생한다. */
+  endingShowAt: number | null;
   toasts: Array<{
     id: number;
     kind: "info" | "error" | "peek";
@@ -89,6 +102,16 @@ export interface AppState {
   showGlossary: boolean;
   /** 이번 턴 봉인된 내 카드 ID 목록 (컨트롤러 패시브 등) */
   silencedCardIds: string[];
+  /** 현재 열린 덱/묘지 모달. cardIds=null & loading=true → 서버 응답 대기 중.
+   *  cardIds=null & loading=false → 숨김(상대 덱). */
+  pileModal: {
+    side: "me" | "opp";
+    kind: "deck" | "grave";
+    cardIds: string[] | null;
+    loading: boolean;
+  } | null;
+  /** zoom 모달로 확대 중인 카드 ID (손패/필드/pile 어디서든 동일 경로). */
+  zoomCardId: string | null;
 }
 
 export class App {
@@ -120,9 +143,12 @@ export class App {
     damageFloats: [],
     coinTossAnimation: null,
     endedInfo: null,
+    endingShowAt: null,
     toasts: [],
     showGlossary: false,
     silencedCardIds: [],
+    pileModal: null,
+    zoomCardId: null,
   };
 
   constructor(
@@ -229,9 +255,44 @@ export class App {
     this.state.damageFloats = [];
     this.state.coinTossAnimation = null;
     this.state.endedInfo = null;
+    this.state.endingShowAt = null;
     this.state.error = null;
     this.state.toasts = [];
     this.state.silencedCardIds = [];
+    this.state.pileModal = null;
+    this.state.zoomCardId = null;
+    // 씬 모듈 레벨 상태도 초기화 — 이전 게임의 slot/roulette/timer 가 유출되지 않도록
+    resetDuelState();
+    resetBoonDraftState();
+    resetClassPickState();
+  }
+
+  /** Rematch 시 호출 — app.state 의 전투 관련 데이터 + 모든 씬 모듈 상태 정리. */
+  private clearBattleState(): void {
+    this.state.hand = [];
+    this.state.disabledClasses = [];
+    this.state.boonOptions = [];
+    this.state.peeks = [];
+    this.state.plays = [];
+    this.state.selectedCardId = null;
+    this.state.pendingBet = 0;
+    this.state.pendingEvents = [];
+    this.state.currentEvent = null;
+    this.state.currentEventPhase = null;
+    this.state.currentEventJackpotShown = null;
+    this.state.isAnimating = false;
+    this.state.hpShake = null;
+    this.state.damageFloats = [];
+    this.state.coinTossAnimation = null;
+    this.state.endedInfo = null;
+    this.state.endingShowAt = null;
+    this.state.toasts = [];
+    this.state.silencedCardIds = [];
+    this.state.pileModal = null;
+    this.state.zoomCardId = null;
+    resetDuelState();
+    resetBoonDraftState();
+    resetClassPickState();
   }
 
   pushToast(kind: "info" | "error" | "peek", text: string, ttlMs = 4000) {
@@ -253,16 +314,33 @@ export class App {
         this.state.error = msg.message;
         this.pushToast("error", msg.message);
         break;
-      case "room":
+      case "room": {
+        // 게임 경계 감지 — 이전 phase 가 battle/ended 였고 새 phase 는 그 이전
+        // 단계면, 이전 게임 상태를 일괄 정리한다 (rematch 플로우).
+        const wasBattleOrEnded =
+          this.state.phase === "battle" || this.state.phase === "ended";
+        const nowPreBattle =
+          msg.phase === "lobby" ||
+          msg.phase === "pick_class" ||
+          msg.phase === "pick_boon";
+        if (wasBattleOrEnded && nowPreBattle) {
+          this.clearBattleState();
+        }
         this.state.phase = msg.phase;
         this.state.players = msg.players;
         this.state.firstPickId = msg.firstPickId;
         this.state.activeId = msg.activeId;
         this.state.turn = msg.turn;
         break;
+      }
       case "coin_toss": {
         this.state.firstPickId = msg.firstPickId;
-        // 코인토스 오버레이 시작. 선픽 이름은 players 중에서 찾음 (직전 room 메시지로 이미 채워져 있음).
+        // 코인토스는 Class Pick 씬 안에서 연출된다. 디자인 타임라인:
+        //   0ms  → intro
+        //   900  → spinning
+        //   2600 → resolving
+        //   3900 → announced
+        //   5600 → picking 시작 (coinTossAnimation 해제)
         const pick = this.state.players.find(
           (p) => p.connectionId === msg.firstPickId,
         );
@@ -271,10 +349,14 @@ export class App {
           firstPickName: pick?.name ?? "???",
           startedAt: Date.now(),
         };
+        // 각 페이즈 전환 시점마다 re-render 해서 sub-phase 반영
+        [900, 2600, 3900].forEach((ms) =>
+          setTimeout(() => this.render(), ms),
+        );
         setTimeout(() => {
           this.state.coinTossAnimation = null;
           this.render();
-        }, 2200);
+        }, 5600);
         break;
       }
       case "class_options":
@@ -296,14 +378,15 @@ export class App {
         this.pushToast("peek", `👁 상대 손패에서 본 카드: ${msg.cardName}`, 5000);
         break;
       case "passive_silence":
-        this.pushToast(
-          "peek",
-          `🔒 컨트롤러 패시브 — 상대 "${msg.cardName}" 이번 턴 봉인`,
-          5000,
-        );
+        // 컨트롤러 패시브는 완전 랜덤 — 워든한테 어떤 카드가 봉인됐는지 알려주지 않음.
+        // 서버가 더 이상 이 메시지를 보내지 않지만 protocol 하위호환을 위해 case 는 유지.
         break;
       case "card_played":
-        this.state.plays.push(msg as unknown as Record<string, unknown>);
+        // 턴 스탬프를 달아 보관 — 필드/로그 렌더 시 필터링/표시에 사용
+        this.state.plays.push({
+          ...msg,
+          turn: this.state.turn,
+        } as unknown as Record<string, unknown>);
         this.state.pendingEvents.push(msg);
         if (!this.state.isAnimating) {
           void this.processEventQueue();
@@ -313,6 +396,17 @@ export class App {
         this.state.activeId = msg.activeId;
         this.state.turn = msg.turn;
         break;
+      case "pile":
+        // 열려있는 pileModal 과 일치하는 응답만 반영 (경합 방지)
+        if (
+          this.state.pileModal &&
+          this.state.pileModal.side === msg.side &&
+          this.state.pileModal.kind === msg.kind
+        ) {
+          this.state.pileModal.cardIds = msg.cardIds;
+          this.state.pileModal.loading = false;
+        }
+        break;
       case "ended":
         this.state.endedInfo = {
           winnerId: msg.winnerId,
@@ -320,12 +414,33 @@ export class App {
           p1Stats: msg.p1Stats,
           p2Stats: msg.p2Stats,
         };
+        // Final blow 연출: 마지막 일격 애니메이션이 끝나고 2.5초 뒤에 ending 씬으로.
+        // 애니메이션 큐 진행 중이면 끝난 뒤 기준, 아니면 지금 기준.
+        {
+          const base = this.state.isAnimating
+            ? this.estimateQueueEndMs()
+            : Date.now();
+          this.state.endingShowAt = base + 2500;
+          // 지정 시각에 재렌더
+          const wait = Math.max(0, this.state.endingShowAt - Date.now());
+          setTimeout(() => this.render(), wait + 50);
+        }
         break;
       default:
         // exhaustive: TS 레벨에서 새 메시지 추가 시 경고
         break;
     }
     this.render();
+  }
+
+  /** 대략적으로 현재 애니메이션 큐가 언제 비는지 (final blow 연출 타이밍 계산용). */
+  private estimateQueueEndMs(): number {
+    const pending = this.state.pendingEvents.length;
+    // 현재 진행 이벤트: 대략 2800 roll + 1100 result 최대 = 3900ms
+    const currentRemaining = this.state.currentEvent ? 3900 : 0;
+    // 대기 이벤트: 각 이벤트당 ~3900ms (타입별 다르지만 대략치)
+    const queued = pending * 3900;
+    return Date.now() + currentRemaining + queued;
   }
 
   // --------------------------------------------------------- 연출 큐 (FX1)
@@ -419,7 +534,6 @@ export class App {
   // --------------------------------------------------------- 렌더
   render() {
     const s = this.state;
-    this.updateBodyClass();
     if (s.route === "lobby") {
       renderLobby(this.root, this);
     } else if (s.route === "room") {
@@ -428,58 +542,8 @@ export class App {
     this.renderFx();
   }
 
-  private updateBodyClass() {
-    const s = this.state;
-    // 화면별 배경 이미지 토글용 class (assets/backgrounds/*.png)
-    let screen = "home";
-    if (s.route === "lobby") {
-      screen = "home";
-    } else if (!s.client || !s.myId) {
-      screen = "home"; // 참가 폼도 홈 배경
-    } else if (s.phase === "lobby") {
-      screen = "lobby";
-    } else if (s.phase === "pick_class") {
-      screen = "pick-class";
-    } else if (s.phase === "pick_boon") {
-      screen = "pick-boon";
-    } else if (s.phase === "battle" || s.phase === "ended") {
-      screen = "battle";
-    }
-    const cls = `screen-${screen}`;
-    if (document.body.dataset.screen !== screen) {
-      document.body.className = document.body.className
-        .split(/\s+/)
-        .filter((c) => !c.startsWith("screen-"))
-        .concat(cls)
-        .join(" ")
-        .trim();
-      document.body.dataset.screen = screen;
-    }
-  }
-
+  /** Coin toss 는 Class Pick 씬 안에서 렌더되므로 여기선 아무것도 안 그림. */
   private renderFx() {
-    const s = this.state;
-    if (s.coinTossAnimation) {
-      const isMe = s.coinTossAnimation.firstPickId === s.myId;
-      this.fxRoot.innerHTML = `
-        <div class="fx-cointoss">
-          <div class="coin">🪙</div>
-          <div class="fx-subtitle muted">코인 토스</div>
-          <div class="fx-coin-result">
-            선픽 — <span class="accent">${escapeHtmlSimple(s.coinTossAnimation.firstPickName)}</span>${isMe ? " (나)" : ""}
-          </div>
-        </div>
-      `;
-    } else {
-      this.fxRoot.innerHTML = "";
-    }
+    this.fxRoot.innerHTML = "";
   }
-}
-
-function escapeHtmlSimple(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }

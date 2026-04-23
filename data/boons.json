@@ -39,7 +39,7 @@
         "damage_reduction": 2,
         "min_damage": 1
       },
-      "desc": "받는 모든 데미지 -2 (최소 1).",
+      "desc": "받는 모든 데미지를 2 감소시킵니다. (최소 1의 피해).",
       "synergy": ["연쇄 베기 카운터", "컨트롤러"],
       "counter_against": ["도박사 크리 난무"]
     },
@@ -52,7 +52,7 @@
       "effect": {
         "heal_per_turn": 5
       },
-      "desc": "매 턴 시작 시 HP +5.",
+      "desc": "매 턴 시작 시 체력을 5 회복시킵니다.",
       "synergy": ["컨트롤러", "장기전 빌드"],
       "counter_against": ["도박사"]
     },
@@ -65,7 +65,7 @@
       "effect": {
         "damage_bonus_all": 3
       },
-      "desc": "모든 카드 데미지 +3 (명중/크리/확정 상관없이).",
+      "desc": "모든 카드의 데미지를 3 올려줍니다.",
       "synergy": ["광전사", "연쇄 베기 (+9뎀)", "다회타 카드"],
       "counter_against": []
     },
@@ -79,7 +79,7 @@
         "acc_bonus": 15,
         "crit_bonus": 10
       },
-      "desc": "모든 명중률 +15%, 크리율 +10%.",
+      "desc": "명중률 +15%, \n치명타 확률 +10%.",
       "synergy": ["광전사", "도박사"],
       "counter_against": [],
       "note": "컨트롤러 확정 카드에는 효과 없음"
@@ -94,7 +94,7 @@
         "bet_acc_bonus_per": 1,
         "bet_crit_bonus_per": 1
       },
-      "desc": "베팅 1당 추가 명중률/크리율 +1% (카드 자체 효과에 더함).",
+      "desc": "베팅 1당 명중률/크리율이 +1% 상승합니다.",
       "synergy": ["광전사 베팅 전략", "분쇄 일격 풀베팅"],
       "counter_against": []
     },
@@ -107,7 +107,7 @@
       "effect": {
         "double_proc_chance": 30
       },
-      "desc": "카드 사용 시마다 30% 확률로 데미지/효과 ×2.",
+      "desc": "카드 사용 시마다 30% 확률로 데미지/효과 가 2배 됩니다.",
       "synergy": ["도박사 컨셉"],
       "counter_against": [],
       "note": "이론상 120뎀 이상 폭딜 가능"
@@ -121,7 +121,7 @@
       "effect": {
         "bet_refund_ratio": 0.5
       },
-      "desc": "베팅한 HP의 50%를 즉시 회복.",
+      "desc": "베팅한 HP의 50%를 즉시 회복합니다.",
       "synergy": ["광전사", "도박사"],
       "counter_against": [],
       "note": "컨트롤러 픽 시 거의 무용지물 (베팅 안 함)"
@@ -135,7 +135,7 @@
       "effect": {
         "extra_card_per_turn": 1
       },
-      "desc": "매 턴 카드 사용 횟수 +1 (2 → 3장).",
+      "desc": "매 턴 카드 사용 가능 횟수가 1 증가합니다.",
       "synergy": ["모든 직업"],
       "counter_against": [],
       "note": "게임 템포가 급격히 빨라짐. 4턴 결착 가능"
@@ -150,7 +150,7 @@
         "starting_hand_bonus": 3,
         "hand_size": 7
       },
-      "desc": "시작 시 손패 +3 (5장 → 8장), 핸드 사이즈 5 → 7.",
+      "desc": "시작 시 손패의 갯수가 3장 추가됩니다.",
       "synergy": ["도박사 더블다운 콤보", "광전사 함성+시그니처 콤보"],
       "counter_against": []
     }

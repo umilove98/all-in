@@ -172,6 +172,7 @@ export class Player {
       const absorbed = Math.min(this.shield, dealt);
       evt.absorbedByShield = absorbed;
       dealt -= absorbed;
+      this.shield -= absorbed; // 🐛 fix: 방어막이 흡수한 만큼 차감
     }
 
     const dr = effectNum(this.boon, "damage_reduction");

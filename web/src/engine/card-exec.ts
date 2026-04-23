@@ -118,7 +118,7 @@ function boonEffectNum(
 //   명중/크리 계산
 // ======================================================================
 
-function computeHitAccuracy(
+export function computeHitAccuracy(
   card: Card,
   caster: Player,
   opponent: Player,
@@ -150,7 +150,7 @@ function computeHitAccuracy(
   return Math.max(0, Math.min(100, acc));
 }
 
-function computeCritChance(card: Card, caster: Player, bet: number): number {
+export function computeCritChance(card: Card, caster: Player, bet: number): number {
   let crit = card.baseCrit + card.betCrit * bet;
   crit += boonEffectNum(caster, "crit_bonus");
   crit += boonEffectNum(caster, "bet_crit_bonus_per") * bet;
@@ -611,6 +611,15 @@ function cleanseSelf(caster: Player, result: CardResult): void {
     caster.betCapOverride = null;
     caster.betCapOverrideTurns = 0;
     notes.push("베팅 상한");
+  }
+  if (caster.nextAttackMissChance > 0) {
+    caster.nextAttackMissChance = 0;
+    notes.push("블러프");
+  }
+  if (caster.incomingDamageMult > 1) {
+    caster.incomingDamageMult = 1.0;
+    caster.incomingDamageMultTurns = 0;
+    notes.push("피해 증폭");
   }
   if (notes.length > 0) {
     result.notes.push(`정화: ${notes.join(", ")}`);

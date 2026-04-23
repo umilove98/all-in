@@ -1,0 +1,29 @@
+name = "allin"
+main = "worker/index.ts"
+compatibility_date = "2024-11-11"
+compatibility_flags = ["nodejs_compat"]
+
+# 정적 에셋 (Vite build 결과물).
+# run_worker_first=true 로 Worker 가 먼저 돌아서 /parties/* 라우트를
+# DO 로 보낸 뒤, 그 외에만 env.ASSETS.fetch() 로 떨어뜨림.
+# 이게 없으면 SPA fallback 이 WebSocket upgrade 요청까지 index.html 로
+# 삼켜버려 핸드셰이크가 무한 대기함.
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = true
+
+# Room Durable Object — 방 1개 = DO 인스턴스 1개
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "Room"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Room"]
+
+# Workers Logs — 에러 스택 보려면 Observability 켜야 함 (무료 tier 에서도 가능)
+[observability]
+enabled = true
+

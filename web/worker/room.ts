@@ -1,13 +1,11 @@
 /**
- * PartyKit 서버. 방 = 1 Durable Object 인스턴스.
- * 상태 머신: lobby → coin_toss → pick_class → pick_boon → battle → ended.
+ * Room Durable Object — party/server.ts 를 Cloudflare Workers DO 네이티브 API로
+ * 포팅한 버전. 게임 로직은 완전히 동일, WebSocket/방 관리 API만 교체.
  *
- * W6: 방 생성/참가/레쥬.
- * W7: coin_toss → pick_class → pick_boon → battle 시작.
- * W8: 턴 진행 (play_card / end_turn).
+ * 상태 머신: lobby → coin_toss → pick_class → pick_boon → battle → ended.
  */
 
-import type * as Party from "partykit/server";
+import { DurableObject } from "cloudflare:workers";
 
 import {
   CLASS_NAMES,
@@ -32,18 +30,19 @@ import {
   PlayerStatsPublic,
   ServerMsg,
 } from "../src/net/protocol";
+import type { Env } from "./index";
 
 interface PlayerSlot {
   connectionId: string;
   name: string;
   className: ClassName | null;
   boonId: string | null;
-  boonOptions: string[]; // 본인에게 제시된 부운 후보
-  boonRerollsLeft: number; // 도박사 패시브 — 리롤 남은 횟수
+  boonOptions: string[];
+  boonRerollsLeft: number;
   player: Player | null;
 }
 
-export default class AllinServer implements Party.Server {
+export class Room extends DurableObject<Env> {
   private phase: Phase = "lobby";
   private slots = new Map<string, PlayerSlot>();
   private slotOrder: string[] = [];
@@ -51,94 +50,128 @@ export default class AllinServer implements Party.Server {
   private game: Game | null = null;
   private cardsUsedThisTurn = 0;
   private winnerId: string | null = null;
+  /** 활성 WebSocket 맵 (connectionId → WebSocket). PartyKit 의 Party.Room 역할. */
+  private conns = new Map<string, WebSocket>();
+  private roomId: string = "";
 
-  constructor(readonly room: Party.Room) {}
+  // =========================================================
+  // DO 진입점 — WebSocket upgrade
+  // =========================================================
+
+  override async fetch(request: Request): Promise<Response> {
+    if (request.headers.get("Upgrade") !== "websocket") {
+      return new Response("Expected WebSocket", { status: 426 });
+    }
+    // roomId 추출 (브로드캐스트/로깅용)
+    const url = new URL(request.url);
+    const match = /^\/parties\/[^/]+\/([^/]+)\/?$/.exec(url.pathname);
+    if (match && !this.roomId) this.roomId = match[1]!.toUpperCase();
+
+    const pair = new WebSocketPair();
+    const client = pair[0]!;
+    const server = pair[1]!;
+    server.accept();
+
+    const connectionId = crypto.randomUUID();
+    this.conns.set(connectionId, server);
+
+    server.addEventListener("message", (event) => {
+      const data = typeof event.data === "string" ? event.data : "";
+      this.handleIncoming(connectionId, data);
+    });
+    const cleanup = () => {
+      if (this.conns.delete(connectionId)) {
+        this.handleLeave(connectionId);
+      }
+    };
+    server.addEventListener("close", cleanup);
+    server.addEventListener("error", cleanup);
+
+    this.handleConnect(connectionId);
+
+    return new Response(null, { status: 101, webSocket: client });
+  }
 
   // =========================================================
   // 연결 관리
   // =========================================================
 
-  onConnect(conn: Party.Connection, _ctx: Party.ConnectionContext) {
+  private handleConnect(connectionId: string) {
     if (this.slots.size >= MAX_PLAYERS_PER_ROOM) {
-      this.sendTo(conn, {
+      this.sendToId(connectionId, {
         type: "error",
         message: "방이 가득 찼습니다 (2/2).",
       });
-      conn.close();
+      this.closeConn(connectionId);
       return;
     }
     if (this.phase !== "lobby") {
-      this.sendTo(conn, {
+      this.sendToId(connectionId, {
         type: "error",
         message: "이미 게임이 진행 중입니다.",
       });
-      conn.close();
+      this.closeConn(connectionId);
       return;
     }
-    this.sendTo(conn, {
+    this.sendToId(connectionId, {
       type: "connected",
-      connectionId: conn.id,
-      roomId: this.room.id,
+      connectionId,
+      roomId: this.roomId,
     });
     this.broadcastRoom();
   }
 
-  onMessage(message: string, sender: Party.Connection) {
+  private handleIncoming(senderId: string, message: string) {
     let msg: ClientMsg;
     try {
       msg = JSON.parse(message) as ClientMsg;
     } catch {
-      this.sendTo(sender, { type: "error", message: "JSON 파싱 실패" });
+      this.sendToId(senderId, { type: "error", message: "JSON 파싱 실패" });
       return;
     }
-
     try {
-      this.dispatch(msg, sender);
+      this.dispatch(msg, senderId);
     } catch (err) {
-      this.sendTo(sender, {
+      this.sendToId(senderId, {
         type: "error",
         message: err instanceof Error ? err.message : String(err),
       });
     }
   }
 
-  onClose(conn: Party.Connection) {
-    this.handleLeave(conn);
-  }
-
-  private dispatch(msg: ClientMsg, sender: Party.Connection) {
+  private dispatch(msg: ClientMsg, senderId: string) {
     switch (msg.type) {
       case "join":
-        this.handleJoin(sender, msg.name);
+        this.handleJoin(senderId, msg.name);
         break;
       case "leave":
-        this.handleLeave(sender);
+        this.handleLeave(senderId);
         break;
       case "pick_class":
-        this.handlePickClass(sender, msg.className);
+        this.handlePickClass(senderId, msg.className);
         break;
       case "pick_boon":
-        this.handlePickBoon(sender, msg.boonId);
+        this.handlePickBoon(senderId, msg.boonId);
         break;
       case "reroll_boon":
-        this.handleRerollBoon(sender);
+        this.handleRerollBoon(senderId);
         break;
       case "play_card":
-        this.handlePlayCard(sender, msg.cardId, msg.bet);
+        this.handlePlayCard(senderId, msg.cardId, msg.bet);
         break;
       case "end_turn":
-        this.handleEndTurn(sender);
+        this.handleEndTurn(senderId);
         break;
       case "rematch":
-        this.handleRematch(sender);
+        this.handleRematch(senderId);
         break;
       case "view_pile":
-        this.handleViewPile(sender, msg.side, msg.kind);
+        this.handleViewPile(senderId, msg.side, msg.kind);
         break;
       default: {
         // @ts-expect-error exhaustive
         const t = msg.type as string;
-        this.sendTo(sender, {
+        this.sendToId(senderId, {
           type: "error",
           message: `알 수 없는 메시지 타입: ${t}`,
         });
@@ -150,19 +183,19 @@ export default class AllinServer implements Party.Server {
   // 핸들러: join / leave
   // =========================================================
 
-  private handleJoin(conn: Party.Connection, name: string) {
-    let slot = this.slots.get(conn.id);
+  private handleJoin(senderId: string, name: string) {
+    let slot = this.slots.get(senderId);
     if (slot) {
       slot.name = trimName(name);
       this.broadcastRoom();
       return;
     }
     if (this.slots.size >= MAX_PLAYERS_PER_ROOM) {
-      this.sendTo(conn, { type: "error", message: "방이 가득 찼습니다." });
+      this.sendToId(senderId, { type: "error", message: "방이 가득 찼습니다." });
       return;
     }
     slot = {
-      connectionId: conn.id,
+      connectionId: senderId,
       name: trimName(name) || `Player-${this.slots.size + 1}`,
       className: null,
       boonId: null,
@@ -170,8 +203,8 @@ export default class AllinServer implements Party.Server {
       boonRerollsLeft: 0,
       player: null,
     };
-    this.slots.set(conn.id, slot);
-    this.slotOrder.push(conn.id);
+    this.slots.set(senderId, slot);
+    this.slotOrder.push(senderId);
     this.broadcastRoom();
 
     if (this.slots.size === MAX_PLAYERS_PER_ROOM) {
@@ -179,10 +212,10 @@ export default class AllinServer implements Party.Server {
     }
   }
 
-  private handleLeave(conn: Party.Connection) {
-    if (!this.slots.has(conn.id)) return;
-    this.slots.delete(conn.id);
-    this.slotOrder = this.slotOrder.filter((id) => id !== conn.id);
+  private handleLeave(senderId: string) {
+    if (!this.slots.has(senderId)) return;
+    this.slots.delete(senderId);
+    this.slotOrder = this.slotOrder.filter((id) => id !== senderId);
 
     if (this.phase !== "lobby") {
       this.resetRoom();
@@ -215,15 +248,12 @@ export default class AllinServer implements Party.Server {
     this.firstPickId = this.slotOrder[idx]!;
     this.phase = "pick_class";
 
-    this.room.broadcast(
-      json<ServerMsg>({
-        type: "coin_toss",
-        firstPickId: this.firstPickId,
-      }),
-    );
+    this.broadcastAll({
+      type: "coin_toss",
+      firstPickId: this.firstPickId,
+    });
     this.broadcastRoom();
 
-    // 선픽에게 클래스 옵션 전송 (후픽은 선픽 이후에 받음)
     this.sendClassOptions(this.firstPickId);
   }
 
@@ -236,19 +266,19 @@ export default class AllinServer implements Party.Server {
     });
   }
 
-  private handlePickClass(sender: Party.Connection, className: ClassName) {
+  private handlePickClass(senderId: string, className: ClassName) {
     if (this.phase !== "pick_class") {
       throw new Error("지금은 직업 선택 단계가 아닙니다.");
     }
-    const slot = this.slots.get(sender.id);
+    const slot = this.slots.get(senderId);
     if (!slot) throw new Error("방에 참가하지 않았습니다.");
     if (slot.className) throw new Error("이미 직업을 선택했습니다.");
     if (!CLASS_NAMES.includes(className)) {
       throw new Error(`알 수 없는 직업: ${className}`);
     }
 
-    const isFirstPick = sender.id === this.firstPickId;
-    const other = this.getOtherSlot(sender.id);
+    const isFirstPick = senderId === this.firstPickId;
+    const other = this.getOtherSlot(senderId);
 
     if (!isFirstPick && !other?.className) {
       throw new Error("선픽이 먼저 선택해야 합니다.");
@@ -261,8 +291,7 @@ export default class AllinServer implements Party.Server {
     this.broadcastRoom();
 
     if (isFirstPick) {
-      // 후픽에게 (선픽 결과 반영된) 옵션 전송
-      const otherId = this.getOtherId(sender.id);
+      const otherId = this.getOtherId(senderId);
       if (otherId) this.sendClassOptions(otherId);
     } else {
       this.startBoonPick();
@@ -279,7 +308,6 @@ export default class AllinServer implements Party.Server {
     const boons = getAllBoons();
 
     for (const slot of this.slots.values()) {
-      // 모든 직업 동일하게 3개 제시. 도박사는 추가로 리롤 1회.
       const options = rng.sample(boons, 3).map((b) => b.id);
       slot.boonOptions = options;
       slot.boonRerollsLeft = slot.className === "gambler" ? 1 : 0;
@@ -292,11 +320,11 @@ export default class AllinServer implements Party.Server {
     this.broadcastRoom();
   }
 
-  private handleRerollBoon(sender: Party.Connection) {
+  private handleRerollBoon(senderId: string) {
     if (this.phase !== "pick_boon") {
       throw new Error("지금은 행운아이템 선택 단계가 아닙니다.");
     }
-    const slot = this.slots.get(sender.id);
+    const slot = this.slots.get(senderId);
     if (!slot) throw new Error("방에 참가하지 않았습니다.");
     if (slot.className !== "gambler") {
       throw new Error("리롤은 도박사 패시브입니다.");
@@ -307,7 +335,7 @@ export default class AllinServer implements Party.Server {
     }
     slot.boonRerollsLeft -= 1;
 
-    const rng = createRng(Date.now() ^ sender.id.length);
+    const rng = createRng(Date.now() ^ senderId.length);
     const boons = getAllBoons();
     const options = rng.sample(boons, 3).map((b) => b.id);
     slot.boonOptions = options;
@@ -319,11 +347,11 @@ export default class AllinServer implements Party.Server {
     this.broadcastRoom();
   }
 
-  private handlePickBoon(sender: Party.Connection, boonId: string) {
+  private handlePickBoon(senderId: string, boonId: string) {
     if (this.phase !== "pick_boon") {
       throw new Error("지금은 행운아이템 선택 단계가 아닙니다.");
     }
-    const slot = this.slots.get(sender.id);
+    const slot = this.slots.get(senderId);
     if (!slot) throw new Error("방에 참가하지 않았습니다.");
     if (slot.boonId) throw new Error("이미 행운아이템을 선택했습니다.");
     if (!slot.boonOptions.includes(boonId)) {
@@ -375,16 +403,17 @@ export default class AllinServer implements Party.Server {
       seed: rng.randint(0, 2 ** 30),
     });
 
-    // Game 인스턴스는 상태 보관/turn 관리용. step()/run() 은 호출하지 않음.
-    // 서버가 클라의 play_card/end_turn 메시지를 받아 수동으로 진행 (W8).
-    this.game = new Game(firstSlot.player, secondSlot.player, undefined, undefined, {
-      seed: rng.randint(0, 2 ** 30),
-    });
+    this.game = new Game(
+      firstSlot.player,
+      secondSlot.player,
+      undefined,
+      undefined,
+      { seed: rng.randint(0, 2 ** 30) },
+    );
 
     this.phase = "battle";
     this.broadcastRoom();
 
-    // 첫 턴 시작 훅
     this.startTurn();
   }
 
@@ -398,13 +427,11 @@ export default class AllinServer implements Party.Server {
     const current = this.game.current;
     const opponent = this.game.opponentOf(current);
 
-    // 턴 시작 훅
     current.beginTurn();
     current.fillHand();
     this.cardsUsedThisTurn = 0;
 
-    // 컨트롤러(워든) 패시브 — 상대 턴 시작마다 상대 손패 중 랜덤 1장을 이번 턴 사용 불가로.
-    // 열람 알림 없이 봉인만 (워든은 무슨 카드가 막혔는지 모름).
+    // 컨트롤러(워든) 패시브
     if (opponent.className === "warden" && current.hand.length > 0) {
       const silenced = this.game.rng.choice(current.hand);
       if (!current.silencedCards.includes(silenced.id)) {
@@ -412,35 +439,26 @@ export default class AllinServer implements Party.Server {
       }
     }
 
-    // 독/베르세르크로 죽었을 가능성
     if (this.checkBattleEnd()) return;
 
-    // hand 본인에게 전송
     this.sendHandsToAll();
 
-    // 턴 전환 브로드캐스트
     const activeId = this.getActiveConnectionId();
     if (activeId) {
-      this.room.broadcast(
-        json<ServerMsg>({
-          type: "turn_changed",
-          activeId,
-          turn: this.game.turn,
-        }),
-      );
+      this.broadcastAll({
+        type: "turn_changed",
+        activeId,
+        turn: this.game.turn,
+      });
     }
     this.broadcastRoom();
   }
 
-  private handlePlayCard(
-    sender: Party.Connection,
-    cardId: string,
-    bet: number,
-  ) {
+  private handlePlayCard(senderId: string, cardId: string, bet: number) {
     if (this.phase !== "battle" || !this.game) {
       throw new Error("지금은 전투 단계가 아닙니다.");
     }
-    const slot = this.slots.get(sender.id);
+    const slot = this.slots.get(senderId);
     if (!slot || !slot.player) throw new Error("참가하지 않았습니다.");
     if (this.game.current !== slot.player) {
       throw new Error("당신 턴이 아닙니다.");
@@ -454,9 +472,7 @@ export default class AllinServer implements Party.Server {
 
     const opponent = this.game.opponentOf(slot.player);
 
-    // 룰렛 연출용 — 버프/부운/베팅 반영된 실제 판정 수치를 executeCard 호출
-    // 전에 스냅샷. 소모성 버프(nextAccBonus 등)가 executeCard 중 0 으로 리셋되므로
-    // 반드시 사전 계산.
+    // 룰렛 연출용 — executeCard 전 스냅샷
     const clampedBet = Math.max(0, Math.min(bet, card.maxBet));
     const accUsed =
       card.type === "hit"
@@ -483,40 +499,35 @@ export default class AllinServer implements Party.Server {
     slot.player.discard(card);
     this.cardsUsedThisTurn += 1;
 
-    // 결과 브로드캐스트
-    this.room.broadcast(
-      json<ServerMsg>({
-        type: "card_played",
-        by: slot.connectionId,
-        cardId: card.id,
-        cardName: card.name,
-        bet: result.bet,
-        success: result.success,
-        critical: result.critical,
-        damageToOpponent: result.damageToOpponent,
-        damageToSelf: result.damageToSelf,
-        heal: result.heal,
-        shieldGained: result.shieldGained,
-        notes: result.notes,
-        jackpotRoll: result.jackpotRoll,
-        accUsed,
-        critChanceUsed,
-      }),
-    );
+    this.broadcastAll({
+      type: "card_played",
+      by: slot.connectionId,
+      cardId: card.id,
+      cardName: card.name,
+      bet: result.bet,
+      success: result.success,
+      critical: result.critical,
+      damageToOpponent: result.damageToOpponent,
+      damageToSelf: result.damageToSelf,
+      heal: result.heal,
+      shieldGained: result.shieldGained,
+      notes: result.notes,
+      jackpotRoll: result.jackpotRoll,
+      accUsed,
+      critChanceUsed,
+    });
 
-    // 손패/상태 갱신
     this.sendHandsToAll();
     this.broadcastRoom();
 
     if (this.checkBattleEnd()) return;
-    // 카드 사용 상한 도달해도 자동 종료하지 않음 — 명시적 end_turn 만 인정.
   }
 
-  private handleEndTurn(sender: Party.Connection) {
+  private handleEndTurn(senderId: string) {
     if (this.phase !== "battle" || !this.game) {
       throw new Error("지금은 전투 단계가 아닙니다.");
     }
-    const slot = this.slots.get(sender.id);
+    const slot = this.slots.get(senderId);
     if (!slot || !slot.player) throw new Error("참가하지 않았습니다.");
     if (this.game.current !== slot.player) {
       throw new Error("당신 턴이 아닙니다.");
@@ -531,7 +542,6 @@ export default class AllinServer implements Party.Server {
 
     if (this.checkBattleEnd()) return;
 
-    // 턴 교대
     this.game.current = this.game.opponentOf(current);
     this.startTurn();
   }
@@ -571,49 +581,38 @@ export default class AllinServer implements Party.Server {
     const p1 = p1Slot?.player;
     const p2 = p2Slot?.player;
 
-    this.room.broadcast(
-      json<ServerMsg>({
-        type: "ended",
-        winnerId: this.winnerId,
-        reason,
-        p1Stats: toStats(p1Slot!, p1!),
-        p2Stats: toStats(p2Slot!, p2!),
-      }),
-    );
+    this.broadcastAll({
+      type: "ended",
+      winnerId: this.winnerId,
+      reason,
+      p1Stats: toStats(p1Slot!, p1!),
+      p2Stats: toStats(p2Slot!, p2!),
+    });
     this.broadcastRoom();
   }
 
-  private handleRematch(_sender: Party.Connection) {
-    // 단순화: 누구라도 rematch 요청 시 방 리셋. 로비로 돌아감.
-    // 실제 양쪽 동의 로직은 W14 (종료 화면) 에서.
+  private handleRematch(_senderId: string) {
     if (this.phase !== "ended") {
       throw new Error("종료 상태에서만 재대전 가능");
     }
     this.resetRoom();
     this.broadcastRoom();
-    // 2명 슬롯 그대로면 다시 coin_toss
     if (this.slots.size === MAX_PLAYERS_PER_ROOM) {
       this.startCoinToss();
     }
   }
 
-  /**
-   * 요청자에게 덱/묘지 카드 목록을 보낸다. 프라이버시:
-   *  - 내 덱/묘지, 상대 묘지 → 카드 ID 목록
-   *  - 상대 덱 → null (숨김)
-   * 전투 단계 밖에선 무시.
-   */
   private handleViewPile(
-    sender: Party.Connection,
+    senderId: string,
     side: "me" | "opp",
     kind: "deck" | "grave",
   ) {
     if (this.phase !== "battle") return;
-    const senderSlot = this.slots.get(sender.id);
+    const senderSlot = this.slots.get(senderId);
     if (!senderSlot?.player) return;
 
     if (side === "opp" && kind === "deck") {
-      this.sendToId(sender.id, {
+      this.sendToId(senderId, {
         type: "pile",
         side,
         kind,
@@ -623,12 +622,12 @@ export default class AllinServer implements Party.Server {
     }
 
     const targetSlot =
-      side === "me" ? senderSlot : this.getOtherSlot(sender.id);
+      side === "me" ? senderSlot : this.getOtherSlot(senderId);
     if (!targetSlot?.player) return;
 
     const source =
       kind === "deck" ? targetSlot.player.deck : targetSlot.player.graveyard;
-    this.sendToId(sender.id, {
+    this.sendToId(senderId, {
       type: "pile",
       side,
       kind,
@@ -669,16 +668,14 @@ export default class AllinServer implements Party.Server {
       .filter((s): s is PlayerSlot => !!s)
       .map((s) => this.toPublic(s));
 
-    this.room.broadcast(
-      json<ServerMsg>({
-        type: "room",
-        phase: this.phase,
-        players,
-        firstPickId: this.firstPickId,
-        activeId: this.game ? this.getActiveConnectionId() : null,
-        turn: this.game?.turn ?? 0,
-      }),
-    );
+    this.broadcastAll({
+      type: "room",
+      phase: this.phase,
+      players,
+      firstPickId: this.firstPickId,
+      activeId: this.game ? this.getActiveConnectionId() : null,
+      turn: this.game?.turn ?? 0,
+    });
   }
 
   private toPublic(slot: PlayerSlot): PlayerPublic {
@@ -745,22 +742,42 @@ export default class AllinServer implements Party.Server {
     return other ? (this.slots.get(other) ?? null) : null;
   }
 
-  private sendTo(conn: Party.Connection, msg: ServerMsg) {
-    conn.send(json(msg));
+  private sendToId(connectionId: string, msg: ServerMsg) {
+    const ws = this.conns.get(connectionId);
+    if (ws) {
+      try {
+        ws.send(JSON.stringify(msg));
+      } catch {
+        /* 이미 닫힌 소켓 — 무시 */
+      }
+    }
   }
 
-  private sendToId(connectionId: string, msg: ServerMsg) {
-    const conn = this.room.getConnection(connectionId);
-    if (conn) conn.send(json(msg));
+  private broadcastAll(msg: ServerMsg) {
+    const payload = JSON.stringify(msg);
+    for (const ws of this.conns.values()) {
+      try {
+        ws.send(payload);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  private closeConn(connectionId: string) {
+    const ws = this.conns.get(connectionId);
+    if (!ws) return;
+    try {
+      ws.close();
+    } catch {
+      /* ignore */
+    }
+    this.conns.delete(connectionId);
   }
 }
 
 function trimName(name: string | undefined): string {
   return (name ?? "").trim().slice(0, 16);
-}
-
-function json<T>(obj: T): string {
-  return JSON.stringify(obj);
 }
 
 function toStats(slot: PlayerSlot, p: Player): PlayerStatsPublic {
@@ -775,5 +792,3 @@ function toStats(slot: PlayerSlot, p: Player): PlayerStatsPublic {
     finalHp: p.hp,
   };
 }
-
-AllinServer satisfies Party.Worker;

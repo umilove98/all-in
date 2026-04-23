@@ -1,64 +1,149 @@
 /**
- * 로비 화면: 방 만들기 / 방 코드 입력.
+ * Main Scene — 사이트 진입.
+ * design handoff (Main.html / MainScene.jsx) 1:1 포팅. 클래스명/DOM 구조는 원본
+ * 과 동일하고, onCreate/onJoin 은 실제 app.navigateToRoom 으로 연결된다.
  */
 
 import { App } from "../app";
+import { generateRoomCode } from "../net/client";
+import { ensureStage, sceneChromeHtml, teardownStage } from "./sceneStage";
+
+const ACTIVE_CLASS = "main-active";
+const IGNITION_MS = 1050;
 
 export function renderLobby(root: HTMLElement, app: App): void {
-  root.innerHTML = `
-    <div class="card">
-      <h1>ALL-IN <small>Bloodbet</small></h1>
-      <p class="muted">한 턴, 한 호흡, 한 방. HP 를 걸고 베팅해 승부하는 1:1 카드 도박.</p>
+  const stage = ensureStage(root, ACTIVE_CLASS);
 
-      <div class="divider"></div>
+  let code = "";
+  let igniting = false;
 
-      <label class="muted" for="name">닉네임</label>
-      <input id="name" type="text" maxlength="16" placeholder="나의 이름"
-             value="${escapeHtml(app.state.name)}" />
+  const render = () => {
+    const trimmed = code.trim().toUpperCase();
+    const canJoin = trimmed.length > 0;
+    stage.innerHTML = `
+      <div class="sceneRoot mainRoot${igniting ? " igniting" : ""}">
+        ${sceneChromeHtml()}
 
-      <div class="row" style="margin-top:16px">
-        <button id="create">방 만들기</button>
+        <div class="mainIgniteHalo" aria-hidden="true"></div>
+        <div class="mainIgniteFlash" aria-hidden="true"></div>
+
+        <div class="mainFrame">
+          <div class="mainLogoStack">
+            <div class="mainGlyphs"><span>✦</span><span>❦</span><span>✦</span></div>
+            <div class="mainOverline">Bloodbet</div>
+            <h1 class="mainTitle">ALL-IN</h1>
+            <div class="mainSubtitle">— a duel of blood and fortune —</div>
+            <div class="mainTagline">${"\n"}</div>
+          </div>
+
+          <div class="mainActions">
+            <form class="mainCreateWrap" id="mainCreateForm">
+              <button type="submit" class="mainCreateBtn">
+                <span class="smGlyph">❦</span>
+                <span>새 방 만들기</span>
+                <span class="smGlyph">❦</span>
+              </button>
+              <div class="mainCreateSub">${"\n"}</div>
+            </form>
+
+            <div class="mainDivider">
+              <span class="mainDividerLine"></span>
+              <span class="mainDividerMark">OR</span>
+              <span class="mainDividerLine"></span>
+            </div>
+
+            <form class="mainInputWrap" id="mainJoinForm">
+              <div class="mainInputLabel">방 코드 입력</div>
+              <div class="mainInputRow">
+                <input
+                  id="mainCode"
+                  class="mainInput"
+                  value="${escapeAttr(code)}"
+                  placeholder="6자리 코드"
+                  maxlength="6"
+                  autocomplete="off"
+                  spellcheck="false"
+                />
+                <button
+                  type="submit"
+                  class="mainSubmit join${canJoin ? "" : " disabled"}"
+                  ${canJoin ? "" : "disabled"}
+                >
+                  <span class="smGlyph">⚔</span>
+                  <span>입장</span>
+                </button>
+              </div>
+              <div class="mainHelper">${canJoin ? "입력한 방에 입장한다" : " "}</div>
+            </form>
+          </div>
+        </div>
+
+        <div class="mainFoot">
+          <span>v0·1</span>
+          <span>2P DUEL</span>
+          <span>3 MIN</span>
+          <span>HP·BET</span>
+        </div>
       </div>
+    `;
+    wire();
+  };
 
-      <div class="divider"></div>
+  const wire = () => {
+    const input = stage.querySelector<HTMLInputElement>("#mainCode");
+    input?.addEventListener("input", () => {
+      code = input.value
+        .toUpperCase()
+        .replace(/[^A-Z0-9]/g, "")
+        .slice(0, 6);
+      // 부분 업데이트: disabled 상태와 helper 만 바꾼다 (전체 re-render 하면 focus 유실)
+      const trimmed = code.trim();
+      const canJoin = trimmed.length > 0;
+      if (input.value !== code) input.value = code;
+      const btn = stage.querySelector<HTMLButtonElement>(".mainSubmit.join");
+      if (btn) {
+        btn.disabled = !canJoin;
+        btn.classList.toggle("disabled", !canJoin);
+      }
+      const helper = stage.querySelector<HTMLElement>(".mainHelper");
+      if (helper) helper.textContent = canJoin ? "입력한 방에 입장한다" : " ";
+    });
 
-      <label class="muted" for="code">친구가 방을 만들었나요? 방 코드 입력</label>
-      <input id="code" type="text" maxlength="8" placeholder="예: AB3F9K" />
-      <div class="row">
-        <button id="join">방 참가</button>
-      </div>
+    stage
+      .querySelector<HTMLFormElement>("#mainCreateForm")
+      ?.addEventListener("submit", (e) => {
+        e.preventDefault();
+        trigger(() => {
+          const roomCode = generateRoomCode();
+          teardownStage(root, ACTIVE_CLASS);
+          app.navigateToRoom(roomCode);
+        });
+      });
 
-      ${app.state.error ? `<div class="error">${escapeHtml(app.state.error)}</div>` : ""}
-    </div>
-  `;
+    stage
+      .querySelector<HTMLFormElement>("#mainJoinForm")
+      ?.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const trimmed = code.trim().toUpperCase();
+        if (!trimmed) return;
+        trigger(() => {
+          teardownStage(root, ACTIVE_CLASS);
+          app.navigateToRoom(trimmed);
+        });
+      });
+  };
 
-  const nameInput = root.querySelector<HTMLInputElement>("#name")!;
-  const codeInput = root.querySelector<HTMLInputElement>("#code")!;
-  const create = root.querySelector<HTMLButtonElement>("#create")!;
-  const join = root.querySelector<HTMLButtonElement>("#join")!;
+  const trigger = (action: () => void) => {
+    if (igniting) return;
+    igniting = true;
+    const scene = stage.querySelector<HTMLElement>(".mainRoot");
+    scene?.classList.add("igniting");
+    setTimeout(action, IGNITION_MS);
+  };
 
-  create.addEventListener("click", async () => {
-    const name = nameInput.value.trim() || "Player";
-    await app.createRoom(name);
-  });
-
-  join.addEventListener("click", async () => {
-    const name = nameInput.value.trim() || "Player";
-    const code = codeInput.value.trim().toUpperCase();
-    if (!code) {
-      app.state.error = "방 코드를 입력하세요.";
-      app.render();
-      return;
-    }
-    app.navigateToRoom(code);
-    await app.joinRoom(code, name);
-  });
+  render();
 }
 
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+function escapeAttr(s: string): string {
+  return s.replace(/"/g, "&quot;").replace(/</g, "&lt;");
 }

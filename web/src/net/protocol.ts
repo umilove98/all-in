@@ -35,13 +35,32 @@ export interface PlayerPublic {
   handCount: number;
   deckCount: number;
   graveyardCount: number;
-  /** 지속 상태 요약 — UI 표시용 */
+  /** 이번 턴 사용 가능한 카드 수 (기본 2 + 부운 보너스). 드롭존 개수 결정용. */
+  maxCardsPerTurn: number;
+  /** 지속 상태 요약 — UI 표시용. chip 표기 + 명중률/피해량 프리뷰 계산에 사용. */
   statuses: {
+    // 지속형 (턴 수 포함)
     poisonTurns: number;
+    poisonDamage: number;
     rageStacks: number;
     berserkTurns: number;
+    berserkAccBonus: number;
+    berserkDamageBonus: number;
     incomingDamageMult: number;
+    incomingDamageMultTurns: number;
     betCapOverride: number | null;
+    betCapOverrideTurns: number;
+    // 다음 1회 (사용 시 소멸)
+    nextAccBonus: number;
+    nextCritBonus: number;
+    guaranteeNextCrit: boolean;
+    dodgeNextPercent: number;
+    nextAttackMissChance: number;
+    // 봉인
+    silencedCardCount: number;
+    // 시그니처 사용 기록 (핸드 비활성화 판정용)
+    sigUsedIds: string[];
+    sigUsedThisTurn: boolean;
   };
 }
 
@@ -57,7 +76,9 @@ export type ClientMsg =
   | { type: "reroll_boon" } // 도박사 패시브 — 부운 3개 재추첨
   | { type: "play_card"; cardId: string; bet: number }
   | { type: "end_turn" }
-  | { type: "rematch" };
+  | { type: "rematch" }
+  /** 덱/묘지 열람 요청. 응답은 "pile" 메시지. 전투 단계에서만 의미 있음. */
+  | { type: "view_pile"; side: "me" | "opp"; kind: "deck" | "grave" };
 
 // ======================================================================
 //   Server → Client
@@ -97,6 +118,13 @@ export type ServerMsg =
       cardName: string;
     } // 컨트롤러 본인에게만 — 상대 카드 하나 침묵시킴 알림
   | CardPlayedMsg
+  /** view_pile 응답. cardIds=null → 숨김(상대 덱). 요청자 본인에게만. */
+  | {
+      type: "pile";
+      side: "me" | "opp";
+      kind: "deck" | "grave";
+      cardIds: string[] | null;
+    }
   | { type: "turn_changed"; activeId: string; turn: number }
   | {
       type: "ended";
@@ -131,6 +159,10 @@ export interface CardPlayedMsg {
   shieldGained: number;
   notes: string[];
   jackpotRoll: number | null;
+  /** hit 카드의 실제 판정에 쓰인 명중률(0~100). 버프/베팅/부운 전부 반영. 룰렛 표시용. */
+  accUsed?: number;
+  /** crit 카드의 실제 판정에 쓰인 치명률(0~100). 베팅/부운 반영. 룰렛 표시용. */
+  critChanceUsed?: number;
 }
 
 // ======================================================================
