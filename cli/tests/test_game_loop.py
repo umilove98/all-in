@@ -149,14 +149,17 @@ def test_poison_triggers_on_turn_start():
 # ------------------------------------------------------------- 컨트롤러 패시브
 
 
-def test_warden_peek_logged_each_turn():
-    p1, p2 = make_players("warden", "berserker", seed=11)
+def test_warden_passive_silences_opponent_each_turn():
+    # 워든 패시브: 상대 턴 시작마다 상대 손패 1장 침묵 (로그 확인).
+    # silenced_cards 는 endTurn 에서 리셋되므로 step() 종료 후엔 빔.
+    p1, p2 = make_players("berserker", "warden", seed=11)
     g = Game(p1, p2, PassAgent(), PassAgent(), seed=11)
-    g.step()   # 워든 턴
-    peeks = [e for e in g.log if e.get("type") == "peek"]
-    assert len(peeks) >= 1
-    assert peeks[0]["player"] == "P1"
-    assert peeks[0]["peeked_card"] in {c.id for c in p2.hand}
+    g.step()   # 광전사 턴 시작 — 워든이 opp → 광전사 손패 1장 침묵
+    silences = [e for e in g.log if e.get("type") == "passive_silence"]
+    assert len(silences) >= 1
+    assert silences[0]["by"] == "P2"  # warden
+    assert silences[0]["victim"] == "P1"
+    assert silences[0]["silenced_card"] in {c.id for c in p1.hand}
 
 
 # ------------------------------------------------------------- 결과 + 통계

@@ -26,7 +26,6 @@ export type KeywordKey =
   | "execute"
   | "patience"
   | "punish"
-  | "judgment"
   | "silence"
   | "bind"
   | "draw"
@@ -51,6 +50,7 @@ export type KeywordKey =
   | "double_down"
   | "final_judgment"
   | "condition_low_hp"
+  | "condition_below_opp"
   | "damage_range";
 
 interface GlossaryEntry {
@@ -100,12 +100,7 @@ export const KEYWORD_GLOSSARY: Record<KeywordKey, GlossaryEntry> = {
   },
   punish: {
     name: "응징",
-    desc: "상대가 직전 턴 빗맞췄으면 데미지 추가.",
-    flavor: "buff",
-  },
-  judgment: {
-    name: "심판",
-    desc: "상대 HP 가 자신보다 높으면 데미지 추가.",
+    desc: "상대가 직전 턴 공격에 성공했으면 데미지 추가.",
     flavor: "buff",
   },
   silence: {
@@ -220,12 +215,17 @@ export const KEYWORD_GLOSSARY: Record<KeywordKey, GlossaryEntry> = {
   },
   final_judgment: {
     name: "최후의 심판",
-    desc: "데미지 = 상대가 게임 내 베팅한 총 HP.",
+    desc: "데미지 = 이번 게임에서 자신이 베팅한 HP. 모든 효과 무시.",
     flavor: "special",
   },
   condition_low_hp: {
     name: "결사",
     desc: "내 HP 가 일정 이하일 때만 사용 가능.",
+    flavor: "self_cost",
+  },
+  condition_below_opp: {
+    name: "역전",
+    desc: "내 HP 가 상대 HP 보다 낮을 때만 사용 가능.",
     flavor: "self_cost",
   },
   damage_range: {
@@ -275,11 +275,8 @@ export function extractKeywords(card: Card): KeywordChip[] {
     push("execute", t !== undefined ? `≤${t}` : undefined);
   }
   if (ex.patience) push("patience");
-  if (typeof ex.punish_missed_prev === "number") {
-    push("punish", `+${ex.punish_missed_prev}`);
-  }
-  if (typeof ex.judgment_bonus === "number") {
-    push("judgment", `+${ex.judgment_bonus}`);
+  if (typeof ex.punish_hit_prev === "number") {
+    push("punish", `+${ex.punish_hit_prev}`);
   }
   if (typeof ex.silence_random === "number") push("silence");
   if (typeof ex.opponent_max_bet_next === "number") {
@@ -289,12 +286,17 @@ export function extractKeywords(card: Card): KeywordChip[] {
     const [lo, hi] = ex.damage_range as [number, number];
     push("damage_range", `${lo}~${hi}`);
   }
-  if (ex.final_judgment) push("final_judgment");
+  if (ex.final_judgment_self_only) push("final_judgment");
   if (ex.jackpot) push("jackpot");
   if (ex.repeat_last) push("double_down");
-  const cond = ex.condition as { self_hp_max?: number } | undefined;
+  const cond = ex.condition as
+    | { self_hp_max?: number; self_hp_below_opp?: boolean }
+    | undefined;
   if (cond?.self_hp_max !== undefined) {
     push("condition_low_hp", `HP ≤${cond.self_hp_max}`);
+  }
+  if (cond?.self_hp_below_opp) {
+    push("condition_below_opp", "HP < 상대");
   }
 
   // ---- 유틸 카드 키워드 ----

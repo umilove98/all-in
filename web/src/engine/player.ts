@@ -82,6 +82,8 @@ export class Player {
   lastCard: Card | null = null;
   missedLastTurn = false;
   private _missedThisTurn = false;
+  hitLastTurn = false;            // 직전 턴 공격이 1회라도 적중했는지 (W2 조건)
+  private _hitThisTurn = false;
   sigUsedIds = new Set<string>();
   sigUsedThisTurn = false;
 
@@ -231,6 +233,7 @@ export class Player {
     }
 
     this._missedThisTurn = false;
+    this._hitThisTurn = false;
     this.sigUsedThisTurn = false;
 
     return info;
@@ -238,6 +241,7 @@ export class Player {
 
   endTurn(): void {
     this.missedLastTurn = this._missedThisTurn;
+    this.hitLastTurn = this._hitThisTurn;
 
     if (this.betCapOverrideTurns > 0) {
       this.betCapOverrideTurns -= 1;
@@ -260,6 +264,7 @@ export class Player {
 
   recordHit(damage: number, critical = false): void {
     this.totalDamageDealt += damage;
+    this._hitThisTurn = true;
     if (critical) this.critCount += 1;
   }
 

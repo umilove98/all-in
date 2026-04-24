@@ -179,7 +179,7 @@
 .cardDesc {
   font-size: 12px !important;
   font-weight: 600 !important;
-  color: rgba(244, 232, 206, 0.95) !important;
+  color: #000 !important;
 }
 .cardStatLabel {
   font-weight: 700 !important;

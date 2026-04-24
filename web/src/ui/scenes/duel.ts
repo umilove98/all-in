@@ -140,18 +140,40 @@ let turnTimerStartedAt: number | null = null;
 let turnTimerIntervalId: number | null = null;
 let lastSeenTurn = -1;
 
-// Roulette 스핀 상태: card_played 이벤트를 받으면 세팅, 2.5s 후 reveal.
+// Roulette 스핀 상태: card_played 이벤트를 받으면 다단계 stages 로 세팅.
+// 각 단계마다 휠이 돌고 결과 reveal 후 다음 단계로.
+//   - hit:   카드 명중 룰렛. 도박사 카드면 gold 크리 영역 동봉.
+//   - bluff: 시전자에게 블러프 발동 시. red 영역 = 강제 miss.
+//   - dodge: 적에게 회피 버프 있을 때. blue 영역 = 회피 성공(데미지 0).
+type RouletteStageKind = "hit" | "bluff" | "dodge";
+interface RouletteStage {
+  kind: RouletteStageKind;
+  /** 표시용 라벨 (예: "명중 판정", "회피 판정") */
+  label: string;
+  /** 휠 성공 영역 비율 (0~100) — 이 영역에 포인터 멈추면 success 처리 */
+  successPct: number;
+  /** hit 단계에서 도박사 카드일 때 gold 영역 비율 (0~100). 성공 영역 안의 일부. */
+  critPct?: number;
+  /** 서버가 정한 결과 (success=룰렛 성공 영역에 멈춤) */
+  isSuccess: boolean;
+  /** crit 결과 (hit 단계에서만 의미). gold 영역 안에 멈춘 것으로 표현 */
+  isCrit: boolean;
+  targetAngle: number;
+  phase: "spinning" | "revealed";
+}
 interface RouletteSpin {
   evt: CardPlayedMsg;
   card: Card;
-  successPct: number;
-  targetAngle: number;
-  startAngle: number;
-  phase: "spinning" | "revealed";
+  stages: RouletteStage[];
+  currentIdx: number;
   startedAt: number;
 }
 let roulette: RouletteSpin | null = null;
 let lastRouletteEventKey = ""; // 중복 트리거 방지
+let rouletteStageStartedAt = 0;  // 현재 단계 시작 시각 (단계 진행 타이머)
+let rouletteAdvanceTimer: number | null = null;
+const ROULETTE_SPIN_MS = 2200;
+const ROULETTE_REVEAL_MS = 900;
 
 // pending turn (card_played 간 slot 표시용) — 최근 사용된 카드의 정보
 interface SlotContent {
@@ -270,7 +292,9 @@ export function renderDuelScene(
               <span class="divGlyph">❦</span>
             </div>
           </div>
-          <div class="tableRight"></div>
+          <div class="tableRight">
+            ${actionLogHtml(app)}
+          </div>
         </div>
 
         <div class="battleRow battleRowSelf">
@@ -304,7 +328,7 @@ export function renderDuelScene(
         </div>
       </div>
 
-      ${handHtml(app, me, sigLocked)}
+      ${handHtml(app, me, opp, sigLocked)}
 
       ${pendingCard ? betOverlayHtml(pendingCard, me, s.pendingBet) : ""}
       ${pileModalHtml(app)}
@@ -324,8 +348,8 @@ export function renderDuelScene(
  * - spinning 첫 진입 → 휠을 transform:0 으로 마운트 + rAF 로 targetAngle 트리거 (CSS transition 이 2.5s 회전 보여줌)
  * - revealed 전환 → reveal 텍스트만 DOM 직접 갱신 (휠은 그대로)
  */
-function syncRouletteMount(stage: HTMLElement): void {
-  const mount = stage.querySelector<HTMLElement>("#duelRouletteMount");
+function syncRouletteMount(stageEl: HTMLElement): void {
+  const mount = stageEl.querySelector<HTMLElement>("#duelRouletteMount");
   if (!mount) return;
 
   if (!roulette) {
@@ -333,15 +357,26 @@ function syncRouletteMount(stage: HTMLElement): void {
     return;
   }
 
-  const existing = mount.querySelector<HTMLElement>(".rouletteBackdrop");
-  if (!existing) {
-    // 신규 마운트: 휠을 rotate(0) 으로 먼저 mount → rAF 로 target 설정해 transition 트리거
-    mount.innerHTML = rouletteOverlayHtml();
+  // 단계 진행: spin 끝나면 reveal, reveal 일정 시간 지나면 다음 단계로 advance
+  advanceStageIfReady();
+
+  const stage = roulette.stages[roulette.currentIdx];
+  if (!stage) {
+    mount.innerHTML = "";
+    return;
+  }
+
+  const existingBackdrop = mount.querySelector<HTMLElement>(".rouletteBackdrop");
+  const dataIdx = existingBackdrop?.dataset.stageIdx;
+  const currentIdxStr = String(roulette.currentIdx);
+  const isNewStage = !existingBackdrop || dataIdx !== currentIdxStr;
+
+  if (isNewStage) {
+    mount.innerHTML = rouletteOverlayHtml(stage, roulette.currentIdx);
     const wheel = mount.querySelector<HTMLElement>(".rouletteWheel");
-    const target = roulette.targetAngle;
     if (wheel) {
       wheel.style.transform = "rotate(0deg)";
-      // 다음 프레임에 target 으로 → CSS `transition: transform 2.5s` 가 스핀 연출
+      const target = stage.targetAngle;
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           if (roulette && wheel.isConnected) {
@@ -353,13 +388,33 @@ function syncRouletteMount(stage: HTMLElement): void {
     return;
   }
 
-  // 기존 오버레이 유지: reveal 상태만 반영
-  const metaMeta = existing.querySelector<HTMLElement>(".rouletteMeta");
+  // reveal 진입 시 결과 텍스트 추가
+  const metaMeta = existingBackdrop.querySelector<HTMLElement>(".rouletteMeta");
   if (metaMeta) {
     const alreadyHasReveal = metaMeta.querySelector(".rouletteReveal");
-    if (roulette.phase === "revealed" && !alreadyHasReveal) {
-      metaMeta.insertAdjacentHTML("beforeend", rouletteRevealHtml(roulette));
+    if (stage.phase === "revealed" && !alreadyHasReveal) {
+      metaMeta.insertAdjacentHTML("beforeend", rouletteRevealHtml(stage));
     }
+  }
+}
+
+/** 시간 경과에 따라 단계 phase 전환. spin → revealed → 다음 단계. */
+function advanceStageIfReady(): void {
+  if (!roulette) return;
+  const stage = roulette.stages[roulette.currentIdx];
+  if (!stage) return;
+  const elapsed = Date.now() - rouletteStageStartedAt;
+  if (stage.phase === "spinning" && elapsed >= ROULETTE_SPIN_MS) {
+    stage.phase = "revealed";
+    return;
+  }
+  if (
+    stage.phase === "revealed" &&
+    elapsed >= ROULETTE_SPIN_MS + ROULETTE_REVEAL_MS &&
+    roulette.currentIdx < roulette.stages.length - 1
+  ) {
+    roulette.currentIdx += 1;
+    rouletteStageStartedAt = Date.now();
   }
 }
 
@@ -378,12 +433,12 @@ function maybeStartRoulette(app: App) {
       roulette = null;
       lastRouletteEventKey = "";
     } else if (app.state.currentEventPhase === "result" && roulette) {
-      // 결과 phase 전환 → reveal 표시 활성화
-      roulette.phase = "revealed";
+      // 결과 phase: 마지막 단계 강제 reveal
+      const last = roulette.stages[roulette.currentIdx];
+      if (last) last.phase = "revealed";
     }
     return;
   }
-  // 동일 이벤트 중복 방지
   const key = `${evt.by}:${evt.cardId}:${evt.bet}:${app.state.turn}`;
   if (key === lastRouletteEventKey && roulette) return;
   lastRouletteEventKey = key;
@@ -395,74 +450,150 @@ function maybeStartRoulette(app: App) {
     return;
   }
 
-  // Fixed / Utility / 100% 성공 카드는 룰렛 스킵 — 즉시 시전.
-  if (card.type === "fixed" || card.type === "utility") {
+  // utility 카드는 룰렛 스킵 (잭팟 등 자체 효과는 별도 표기)
+  if (card.type === "utility") {
     roulette = null;
     return;
   }
 
-  const successPct = computeSuccessPct(card, evt);
-  if (successPct >= 100) {
+  const stages: RouletteStage[] = [];
+
+  // ---- Stage 1: Bluff (시전자 강제 miss) ----
+  const bluffChance =
+    typeof evt.bluffChance === "number" ? evt.bluffChance : 0;
+  if (bluffChance > 0) {
+    const triggered = !!evt.bluffTriggered;
+    stages.push(
+      buildStage("bluff", "블러프 판정", bluffChance, triggered, false),
+    );
+  }
+
+  // ---- Stage 2: Hit (acc 영역 + crit gold 영역) ----
+  // 블러프 발동된 경우 hit 단계는 굴리지 않고 표시만 (정보)
+  const accUsed = typeof evt.accUsed === "number" ? evt.accUsed : 100;
+  const critChance =
+    card.type === "crit" && typeof evt.critChanceUsed === "number"
+      ? evt.critChanceUsed
+      : undefined;
+  const bluffWillTrigger =
+    bluffChance > 0 && evt.bluffTriggered === true;
+  const skipHitForBluff = bluffWillTrigger;
+  const hitSuccess = !skipHitForBluff && evt.success === true
+    || (!skipHitForBluff && evt.dodged === true) // 회피로 무효화돼도 hit 자체는 성공
+    || (!skipHitForBluff && evt.critical === true);
+  // Fixed 는 항상 100% acc, hit 룰렛 스킵 가능
+  const showHitWheel = !skipHitForBluff && card.type !== "fixed" && accUsed < 100;
+  if (showHitWheel) {
+    const stage = buildStage(
+      "hit",
+      card.type === "crit" ? "명중 / 치명 판정" : "명중 판정",
+      accUsed,
+      hitSuccess,
+      evt.critical === true,
+    );
+    if (typeof critChance === "number" && critChance > 0) {
+      // gold 크리 영역 — acc 영역 안에 동봉 (success 영역의 일부)
+      stage.critPct = Math.min(critChance, accUsed);
+      // 크리 발동이면 gold 영역(0~critPct°) 내부에 멈추도록 targetAngle 조정
+      if (evt.critical) {
+        stage.targetAngle = randomTargetInRange(0, stage.critPct);
+      } else if (hitSuccess) {
+        // hit but not crit → gold 바깥, 성공 영역 안
+        stage.targetAngle = randomTargetInRange(stage.critPct, accUsed);
+      }
+    }
+    stages.push(stage);
+  }
+
+  // ---- Stage 3: Dodge (적의 회피 굴림) ----
+  const dodgeChance =
+    typeof evt.dodgeChance === "number" ? evt.dodgeChance : 0;
+  if (dodgeChance > 0) {
+    const dodged = !!evt.dodged;
+    stages.push(
+      buildStage("dodge", "회피 판정", dodgeChance, dodged, false),
+    );
+  }
+
+  if (stages.length === 0) {
     roulette = null;
     return;
   }
-
-  const outcome = evt.critical
-    ? "success"
-    : evt.success
-      ? card.type === "crit"
-        ? "fail" // crit 카드는 success=crit, fail=일반적중
-        : "success"
-      : "fail";
-
-  const successDeg = (successPct / 100) * 360;
-  const margin = 6;
-  let landDeg: number;
-  if (outcome === "success") {
-    const lo = Math.min(margin, successDeg / 2);
-    const hi = Math.max(successDeg - margin, successDeg / 2);
-    landDeg = lo + Math.random() * Math.max(0, hi - lo);
-  } else {
-    const lo = successDeg + margin;
-    const hi = 360 - margin;
-    landDeg = lo + Math.random() * Math.max(0, hi - lo);
-  }
-  const spins = 5;
-  const targetAngle = spins * 360 + (360 - landDeg);
 
   roulette = {
     evt,
     card,
-    successPct,
-    targetAngle,
-    startAngle: 0,
-    phase: "spinning",
+    stages,
+    currentIdx: 0,
     startedAt: Date.now(),
+  };
+  rouletteStageStartedAt = Date.now();
+  scheduleRouletteAdvance(app);
+}
+
+/** 단계 전환 시각마다 app.render() 호출. spin → reveal → next stage 자동 진행. */
+function scheduleRouletteAdvance(app: App): void {
+  if (rouletteAdvanceTimer !== null) {
+    window.clearTimeout(rouletteAdvanceTimer);
+    rouletteAdvanceTimer = null;
+  }
+  if (!roulette) return;
+  const stage = roulette.stages[roulette.currentIdx];
+  if (!stage) return;
+
+  // 다음 깨어날 시점: spin 끝 또는 reveal 끝 (마지막 단계 아니면 다음 단계로)
+  const elapsed = Date.now() - rouletteStageStartedAt;
+  const isLast = roulette.currentIdx >= roulette.stages.length - 1;
+  let nextMs: number;
+  if (stage.phase === "spinning") {
+    nextMs = Math.max(50, ROULETTE_SPIN_MS - elapsed);
+  } else {
+    if (isLast) return;  // 마지막 단계면 server result phase 가 reveal 전환 처리
+    nextMs = Math.max(50, ROULETTE_SPIN_MS + ROULETTE_REVEAL_MS - elapsed);
+  }
+
+  rouletteAdvanceTimer = window.setTimeout(() => {
+    rouletteAdvanceTimer = null;
+    if (!roulette) return;
+    app.render();
+    scheduleRouletteAdvance(app);
+  }, nextMs);
+}
+
+/** 단일 stage 생성. successDeg 영역 안/밖 어느 곳에 멈출지 결정. */
+function buildStage(
+  kind: RouletteStageKind,
+  label: string,
+  successPct: number,
+  isSuccess: boolean,
+  isCrit: boolean,
+): RouletteStage {
+  const successDeg = (successPct / 100) * 360;
+  let landDeg: number;
+  if (isSuccess) {
+    landDeg = randomTargetInRange(0, successDeg);
+  } else {
+    landDeg = randomTargetInRange(successDeg, 360);
+  }
+  const spins = 5;
+  const targetAngle = spins * 360 + (360 - landDeg);
+  return {
+    kind,
+    label,
+    successPct,
+    isSuccess,
+    isCrit,
+    targetAngle,
+    phase: "spinning",
   };
 }
 
-function computeSuccessPct(card: Card, evt: CardPlayedMsg): number {
-  // 서버가 판정에 쓴 실제 수치(accUsed/critChanceUsed)를 우선 사용.
-  // 없는 구버전 서버 호환을 위해 card 기본값으로 fallback.
-  if (card.type === "hit") {
-    if (typeof evt.accUsed === "number") {
-      return Math.max(0, Math.min(100, evt.accUsed));
-    }
-    return Math.max(
-      0,
-      Math.min(100, card.baseAcc + card.betAcc * evt.bet + evt.bet * 2),
-    );
-  }
-  if (card.type === "crit") {
-    if (typeof evt.critChanceUsed === "number") {
-      return Math.max(0, Math.min(100, evt.critChanceUsed));
-    }
-    return Math.max(
-      0,
-      Math.min(100, card.baseCrit + card.betCrit * evt.bet),
-    );
-  }
-  return 100;
+function randomTargetInRange(fromDeg: number, toDeg: number): number {
+  const margin = 6;
+  const lo = Math.min(toDeg - 1, fromDeg + margin);
+  const hi = Math.max(fromDeg + 1, toDeg - margin);
+  if (hi <= lo) return (fromDeg + toDeg) / 2;
+  return lo + Math.random() * (hi - lo);
 }
 
 function reflectPlaysToSlots(app: App, me: PlayerPublic, opp: PlayerPublic) {
@@ -500,6 +631,14 @@ function reflectPlaysToSlots(app: App, me: PlayerPublic, opp: PlayerPublic) {
 // Card.jsx 1:1 포팅
 // =====================================================================
 
+/** 카드 데미지/효과 실시간 계산용 컨텍스트. 카드에 표기되는 숫자를 현재
+ *  상태(버프/누적 베팅/누적 피해/상대 miss 여부 등)에 맞춰 계산하기 위함. */
+interface CardStatCtx {
+  me?: PlayerPublic;
+  opp?: PlayerPublic;
+  boonEffect?: Record<string, number>;
+}
+
 function cardHtml(
   card: Card | null,
   opts: {
@@ -510,6 +649,7 @@ function cardHtml(
     selected?: boolean;
     dragging?: boolean;
     playable?: boolean;
+    ctx?: CardStatCtx;
   } = {},
 ): string {
   const size = opts.size ?? "hand";
@@ -561,7 +701,7 @@ function cardHtml(
 
           ${cardArtHtml(card, typePal, isSig)}
 
-          ${primaryStatHtml(card)}
+          ${primaryStatHtml(card, opts.ctx ?? {})}
 
           <div class="cardDesc">${escapeHtml(cardDescText(card))}</div>
 
@@ -625,82 +765,203 @@ function cardArtHtml(
   `;
 }
 
-function primaryStatHtml(card: Card): string {
+/** me 의 부운 effect 값 (없으면 0). */
+function boonEffect(me: PlayerPublic | undefined, key: string): number {
+  if (!me?.boonId) return 0;
+  try {
+    const b = getBoonById(me.boonId);
+    const v = b.effect[key];
+    return typeof v === "number" ? v : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** 공격 카드 현재 예상 데미지.
+ *
+ * - `value`: 카드에 실제 표기할 숫자 (현재 상태 반영)
+ * - `hasTempBuff`: 일시적(턴 제한 또는 1회 소모) 버프로 인해 값이 바뀐 상태인지.
+ *   true 면 카드에 붉은색/볼드로 강조해 "이번 회차 한정" 임을 시각화.
+ *
+ * 집계 규칙:
+ *   - 카드 고유 설계(기본 데미지 + W2 응징/W5 심판 조건부): 항상 포함, 강조 X
+ *   - 부운 패시브(BN04 등): 항상 포함, 강조 X (게임 내내 유효한 빌드 효과)
+ *   - 일시 버프(베르세르크 / 분노 스택): 포함 + 강조 O */
+function computeAttackDamage(
+  card: Card,
+  ctx: CardStatCtx,
+): { value: number; hasTempBuff: boolean } {
+  // 카드 설계값: base + 조건부 보너스
+  let value = card.damage;
+  // W2 처벌의 빛: 상대 직전 턴 적중 시 +
+  const punishHit = card.extra.punish_hit_prev as number | undefined;
+  if (punishHit && ctx.opp?.hitLastTurn) value += punishHit;
+
+  // 부운 (패시브 — 게임 전체 유효)
+  value += boonEffect(ctx.me, "damage_bonus_all");
+
+  // 일시 버프
+  const berserk = ctx.me?.statuses.berserkDamageBonus ?? 0;
+  const rage = (ctx.me?.statuses.rageStacks ?? 0) * 8;
+  value += berserk + rage;
+
+  return { value, hasTempBuff: berserk > 0 || rage > 0 };
+}
+
+/** 명중률 현재값. 일시 버프 = nextAccBonus / berserkAccBonus. */
+function computeAcc(
+  card: Card,
+  ctx: CardStatCtx,
+): { value: number; hasTempBuff: boolean } {
+  let value = card.baseAcc;
+  value += boonEffect(ctx.me, "acc_bonus");
+  const next = ctx.me?.statuses.nextAccBonus ?? 0;
+  const berserk = ctx.me?.statuses.berserkAccBonus ?? 0;
+  value += next + berserk;
+  return {
+    value: Math.max(0, Math.min(100, value)),
+    hasTempBuff: next > 0 || berserk > 0,
+  };
+}
+
+/** 치명률 현재값. 일시 버프 = nextCritBonus / guaranteeNextCrit. */
+/**
+ * 치명률 = floor(현재 명중률 / 10) + 카드 base/bet_crit + 부운 + 다음-1회 버프.
+ * 명중률 변화에 따라 자동 상승 (서버 computeCritChance 와 일치).
+ */
+function computeCrit(
+  card: Card,
+  ctx: CardStatCtx,
+  effectiveAcc: number,
+  bet = 0,
+): { value: number; hasTempBuff: boolean; guaranteed: boolean } {
+  const guaranteed = ctx.me?.statuses.guaranteeNextCrit ?? false;
+  if (guaranteed) return { value: 100, hasTempBuff: true, guaranteed: true };
+  let value = Math.floor(effectiveAcc / 10);
+  value += card.baseCrit + card.betCrit * bet;
+  value += boonEffect(ctx.me, "crit_bonus");
+  const next = ctx.me?.statuses.nextCritBonus ?? 0;
+  value += next;
+  return {
+    value: Math.max(0, Math.min(100, value)),
+    hasTempBuff: next > 0,
+    guaranteed: false,
+  };
+}
+
+function bigStatSpan(value: number | string, hasTempBuff: boolean): string {
+  const cls = hasTempBuff ? "cardStatBig cardStatBuffed" : "cardStatBig";
+  return `<span class="${cls}">${value}</span>`;
+}
+
+function midStatSpan(value: number | string, hasTempBuff: boolean): string {
+  const cls = hasTempBuff ? "cardStatMid cardStatBuffed" : "cardStatMid";
+  return `<span class="${cls}">${value}</span>`;
+}
+
+function primaryStatHtml(card: Card, ctx: CardStatCtx): string {
   if (card.type === "hit") {
+    const d = computeAttackDamage(card, ctx);
+    const a = computeAcc(card, ctx);
     return `
       <div class="cardPrimary">
         <div class="cardPrimaryRow">
           <span class="cardStatLabel">공격력</span>
-          <span class="cardStatBig">${card.damage}</span>
+          ${bigStatSpan(d.value, d.hasTempBuff)}
         </div>
         <div class="cardPrimaryRow">
           <span class="cardStatLabel">명중률</span>
-          <span class="cardStatMid">${card.baseAcc}%</span>
-          <span class="cardStatBet">+${card.betAcc}% / 베팅</span>
+          ${midStatSpan(`${a.value}%`, a.hasTempBuff)}
+          ${card.betAcc > 0 ? `<span class="cardStatBet">+${card.betAcc}% / 베팅</span>` : ""}
         </div>
       </div>
     `;
   }
   if (card.type === "crit") {
     const range = card.extra.damage_range as [number, number] | undefined;
-    const dmg = range ? `${range[0]}~${range[1]}` : `${card.damage}`;
+    let dmgMarkup: string;
+    if (range) {
+      const berserk = ctx.me?.statuses.berserkDamageBonus ?? 0;
+      const rage = (ctx.me?.statuses.rageStacks ?? 0) * 8;
+      const passive = boonEffect(ctx.me, "damage_bonus_all");
+      const bonus = berserk + rage + passive;
+      const lo = range[0] + bonus;
+      const hi = range[1] + bonus;
+      const tempBuff = berserk > 0 || rage > 0;
+      dmgMarkup = bigStatSpan(`${lo}~${hi}`, tempBuff);
+    } else {
+      const d = computeAttackDamage(card, ctx);
+      dmgMarkup = bigStatSpan(d.value, d.hasTempBuff);
+    }
+    const a = computeAcc(card, ctx);
+    const c = computeCrit(card, ctx, a.value, 0);
     return `
       <div class="cardPrimary">
         <div class="cardPrimaryRow">
           <span class="cardStatLabel">공격력</span>
-          <span class="cardStatBig">${dmg}</span>
+          ${dmgMarkup}
           <span class="cardStatMult">×${card.critMult}</span>
         </div>
         <div class="cardPrimaryRow">
-          <span class="cardStatLabel">치명률</span>
-          <span class="cardStatMid">${card.baseCrit}%</span>
-          <span class="cardStatBet">+${card.betCrit}% / 베팅</span>
+          <span class="cardStatLabel">명중률</span>
+          ${midStatSpan(`${a.value}%`, a.hasTempBuff)}
+          ${card.betAcc > 0 ? `<span class="cardStatBet">+${card.betAcc}% / 베팅</span>` : ""}
+        </div>
+        <div class="cardPrimaryRow">
+          <span class="cardStatLabel">치명타</span>
+          ${midStatSpan(c.guaranteed ? "100% 확정" : `${c.value}%`, c.hasTempBuff || a.hasTempBuff)}
+          ${card.betCrit > 0 ? `<span class="cardStatBet">+${card.betCrit}% / 베팅</span>` : ""}
         </div>
       </div>
     `;
   }
   if (card.type === "fixed") {
-    if (card.extra.final_judgment) {
+    // W15 최후의 심판 — 자신이 베팅한 HP. 모든 효과 무시 고정 데미지.
+    if (card.extra.final_judgment_self_only) {
+      const live = ctx.me?.totalBet ?? 0;
       return `
         <div class="cardPrimary">
           <div class="cardPrimaryRow">
             <span class="cardStatLabel">확정 피해</span>
-            <span class="cardStatMid" style="color:#c99454">상대 총 베팅 HP</span>
+            <span class="cardStatBig">${live}</span>
           </div>
           <div class="cardPrimaryRow">
-            <span class="cardStatLabel">명중</span>
-            <span class="cardStatMid" style="color:#3d6e5a">확정 100%</span>
+            <span class="cardStatLabel">효과</span>
+            <span class="cardStatMid">모든 효과 무시</span>
           </div>
         </div>
       `;
     }
+    // W6 인내의 반격 — 받은 피해 × ratio.
     if (card.extra.patience) {
-      const pat = card.extra.patience as { div?: number; cap?: number };
-      const div = pat.div ?? 3;
-      const cap = pat.cap ?? 35;
+      const pat = card.extra.patience as { ratio?: number };
+      const ratio = pat.ratio ?? 0.3;
+      const taken = ctx.me?.totalDamageTaken ?? 0;
+      const live = Math.floor(taken * ratio);
       return `
         <div class="cardPrimary">
           <div class="cardPrimaryRow">
-            <span class="cardStatLabel">확정 피해</span>
-            <span class="cardStatMid" style="color:#c99454">받은 피해 ÷ ${div} (≤${cap})</span>
+            <span class="cardStatLabel">반환 피해</span>
+            <span class="cardStatBig">${live}</span>
           </div>
           <div class="cardPrimaryRow">
-            <span class="cardStatLabel">명중</span>
-            <span class="cardStatMid" style="color:#3d6e5a">확정 100%</span>
+            <span class="cardStatLabel">비율</span>
+            <span class="cardStatMid">${Math.round(ratio * 100)}%</span>
           </div>
         </div>
       `;
     }
+    // 일반 fixed
+    const d = computeAttackDamage(card, ctx);
     return `
       <div class="cardPrimary">
         <div class="cardPrimaryRow">
           <span class="cardStatLabel">공격력</span>
-          <span class="cardStatBig">${card.damage}</span>
-          ${card.betDamage > 0 ? `<span class="cardStatBet">+${card.betDamage} / 베팅</span>` : ""}
+          ${bigStatSpan(d.value, d.hasTempBuff)}
         </div>
         <div class="cardPrimaryRow">
-          <span class="cardStatLabel">확정 타격</span>
-          <span class="cardStatMid" style="color:#3d6e5a">100%</span>
+          <span class="cardStatLabel">강화</span>
+          <span class="cardStatMid">${card.betDamage} / 베팅</span>
         </div>
       </div>
     `;
@@ -1311,7 +1572,12 @@ function dropZoneHtml(
   `;
 }
 
-function handHtml(app: App, me: PlayerPublic, sigLocked: boolean): string {
+function handHtml(
+  app: App,
+  me: PlayerPublic,
+  opp: PlayerPublic,
+  sigLocked: boolean,
+): string {
   const hand = app.state.hand;
   const myClass = me.className ?? undefined;
   const silenced = new Set(app.state.silencedCardIds);
@@ -1321,6 +1587,7 @@ function handHtml(app: App, me: PlayerPublic, sigLocked: boolean): string {
   const fanAngle = Math.min(8, 48 / Math.max(1, n));
   const xStep = Math.max(52, Math.min(72, 520 / n));
   const arcLift = 10;
+  const ctx: CardStatCtx = { me, opp };
 
   const slots = hand
     .map((c, i) => {
@@ -1333,6 +1600,7 @@ function handHtml(app: App, me: PlayerPublic, sigLocked: boolean): string {
         sigLocked,
         sigUsedIds,
         sigUsedThisTurn,
+        opp,
       });
       const dragging = dragState?.card.id === c.id && dragState?.moved;
       const transform = `translateX(${offset * xStep}px) translateY(${y}px) rotate(${angle}deg)`;
@@ -1343,7 +1611,7 @@ function handHtml(app: App, me: PlayerPublic, sigLocked: boolean): string {
           style="transform:${transform}; z-index:${10 + i}; --hand-unrotate:${-angle}deg"
         >
           <div class="handSlotLift">
-            ${cardHtml(c, { size: "hand", locked, lockMsg, owner: myClass })}
+            ${cardHtml(c, { size: "hand", locked, lockMsg, owner: myClass, ctx })}
           </div>
         </div>
       `;
@@ -1366,6 +1634,7 @@ function evaluateCardLock(
     sigLocked: boolean;
     sigUsedIds: Set<string>;
     sigUsedThisTurn: boolean;
+    opp?: PlayerPublic;
   },
 ): { locked: boolean; lockMsg: string } {
   if (ctx.silenced.has(card.id)) {
@@ -1379,16 +1648,22 @@ function evaluateCardLock(
       return { locked: true, lockMsg: "1게임 1회 · 사용됨" };
     }
     if (ctx.sigUsedThisTurn) {
-      return { locked: true, lockMsg: "이번 턴 시그 사용됨" };
+      return { locked: true, lockMsg: "이번 턴 시그니처 사용됨" };
     }
   }
   const cond = card.extra.condition as
-    | { self_hp_max?: number }
+    | { self_hp_max?: number; self_hp_below_opp?: boolean }
     | undefined;
   if (cond?.self_hp_max !== undefined && me.hp > cond.self_hp_max) {
     return {
       locked: true,
       lockMsg: `HP ${cond.self_hp_max} 이하 필요`,
+    };
+  }
+  if (cond?.self_hp_below_opp && ctx.opp && me.hp >= ctx.opp.hp) {
+    return {
+      locked: true,
+      lockMsg: "내 HP < 상대 HP 필요",
     };
   }
   return { locked: false, lockMsg: "" };
@@ -1461,22 +1736,43 @@ function betOverlayHtml(card: Card, me: PlayerPublic, bet: number): string {
 function computeHitPreview(card: Card, bet: number, me: PlayerPublic): string {
   const s = me.statuses;
 
-  if (card.type === "hit") {
+  // 명중률 산출 (hit/crit 공용)
+  const computeAcc = (): number => {
     let acc = card.baseAcc + card.betAcc * bet;
     if (me.className === "berserker") acc += 2 * bet;
     acc += s.nextAccBonus;
     acc += s.berserkAccBonus;
-    acc = Math.max(0, Math.min(100, acc));
-    return `명중률 ${acc.toFixed(0)}%${s.nextAccBonus > 0 || s.berserkAccBonus > 0 ? " ⚘" : ""}`;
+    return Math.max(0, Math.min(100, acc));
+  };
+
+  if (card.type === "hit") {
+    const acc = computeAcc();
+    const buffed = s.nextAccBonus > 0 || s.berserkAccBonus > 0;
+    return `명중률 ${acc.toFixed(0)}%${buffed ? " ⚘" : ""}`;
   }
   if (card.type === "crit") {
-    let crit = card.baseCrit + card.betCrit * bet;
+    const acc = computeAcc();
+    let crit = Math.floor(acc / 10);
+    crit += card.baseCrit + card.betCrit * bet;
     crit += s.nextCritBonus;
     crit = Math.max(0, Math.min(100, crit));
     const guaranteed = s.guaranteeNextCrit ? " · 확정 치명" : "";
-    return `크리율 ${crit.toFixed(0)}%${guaranteed}${s.nextCritBonus > 0 ? " ⚘" : ""}`;
+    const accBuffed = s.nextAccBonus > 0 || s.berserkAccBonus > 0;
+    const critBuffed = s.nextCritBonus > 0 || s.guaranteeNextCrit;
+    return (
+      `명중 ${acc.toFixed(0)}%${accBuffed ? " ⚘" : ""} · ` +
+      `치명 ${crit.toFixed(0)}%${critBuffed ? " ⚘" : ""}${guaranteed}`
+    );
   }
   if (card.type === "fixed") {
+    if (card.extra.final_judgment_self_only) {
+      return `확정 피해 ${me.totalBet} (모든 효과 무시)`;
+    }
+    if (card.extra.patience) {
+      const pat = card.extra.patience as { ratio?: number };
+      const ratio = pat.ratio ?? 0.3;
+      return `반환 피해 ${Math.floor(me.totalDamageTaken * ratio)}`;
+    }
     const dmg = card.damage + card.betDamage * bet;
     return `확정 피해 ${dmg}`;
   }
@@ -1557,31 +1853,36 @@ function betPreviewRowsHtml(
   return rows.join("");
 }
 
-function rouletteOverlayHtml(): string {
+function rouletteOverlayHtml(stage: RouletteStage, idx: number): string {
   if (!roulette) return "";
-  const { card, successPct, evt } = roulette;
-  const successDeg = (successPct / 100) * 360;
-  const conic = buildConicBands(successDeg, successPct);
-  const label =
-    card.type === "hit"
-      ? "명중 판정"
-      : card.type === "crit"
-        ? "치명 판정"
-        : card.type === "fixed"
-          ? "확정 발동"
-          : "발동";
+  const { card, evt, stages } = roulette;
+  const conic = buildStageConic(stage);
+  const stageIndicator =
+    stages.length > 1 ? `  (${idx + 1}/${stages.length})` : "";
 
-  // 초기 마운트: 휠은 rotate(0) — 이후 syncRouletteMount 가 rAF 로 target 으로 전환
+  // 단계 종류별 성공 확률 라벨
+  const successLabel =
+    stage.kind === "bluff"
+      ? "강제 miss 확률"
+      : stage.kind === "dodge"
+        ? "회피 확률"
+        : "명중 확률";
+
+  const critRow =
+    stage.kind === "hit" && typeof stage.critPct === "number" && stage.critPct > 0
+      ? `<div class="rouletteMetaRow"><span class="rmLabel">치명 확률</span><span class="rmValue rmCrit">${stage.critPct.toFixed(0)}%</span></div>`
+      : "";
+
   return `
-    <div class="rouletteBackdrop">
+    <div class="rouletteBackdrop" data-stage-idx="${idx}" data-stage-kind="${stage.kind}">
       <div class="roulettePanel">
         <div class="rouletteHeader">
-          <span class="rouletteLabel">${escapeHtml(label)}</span>
+          <span class="rouletteLabel">${escapeHtml(stage.label)}${stageIndicator}</span>
           <span class="rouletteCardName">『${escapeHtml(card.name)}』</span>
         </div>
         <div class="rouletteStage">
           <div class="rouletteWheelOuter">
-            <div class="rouletteWheel" style="background:conic-gradient(from 0deg, ${conic}); transform:rotate(0deg); transition: transform 2.5s cubic-bezier(.12, .62, .16, 1)">
+            <div class="rouletteWheel" style="background:conic-gradient(from 0deg, ${conic}); transform:rotate(0deg); transition: transform ${ROULETTE_SPIN_MS}ms cubic-bezier(.12, .62, .16, 1)">
               <div class="rouletteHub"></div>
             </div>
             <div class="roulettePointer"></div>
@@ -1590,11 +1891,12 @@ function rouletteOverlayHtml(): string {
         </div>
         <div class="rouletteMeta">
           <div class="rouletteMetaRow">
-            <span class="rmLabel">성공 확률</span>
-            <span class="rmValue rmSuccess">${successPct.toFixed(0)}%</span>
+            <span class="rmLabel">${escapeHtml(successLabel)}</span>
+            <span class="rmValue rm-${stage.kind}">${stage.successPct.toFixed(0)}%</span>
           </div>
+          ${critRow}
           ${
-            evt.bet > 0
+            evt.bet > 0 && idx === 0
               ? `<div class="rouletteMetaRow"><span class="rmLabel">베팅</span><span class="rmValue">-${evt.bet} HP</span></div>`
               : ""
           }
@@ -1604,62 +1906,185 @@ function rouletteOverlayHtml(): string {
   `;
 }
 
-function rouletteRevealHtml(r: RouletteSpin): string {
-  const { card, evt } = r;
-  const outcome = evt.critical
-    ? "success"
-    : evt.success
-      ? card.type === "crit"
-        ? "fail"
-        : "success"
-      : "fail";
-  const text =
-    card.type === "crit"
-      ? outcome === "success"
-        ? "✦ 치명타!"
-        : "✔ 적중"
-      : outcome === "success"
-        ? "✔ 성공"
-        : "✕ 실패";
-  return `<div class="rouletteReveal ${outcome === "success" ? "revealWin" : "revealLose"}">${text}</div>`;
+function rouletteRevealHtml(stage: RouletteStage): string {
+  let text: string;
+  let cls: string;
+  if (stage.kind === "bluff") {
+    if (stage.isSuccess) {
+      text = "✕ 블러프 발동 · 강제 miss";
+      cls = "revealLose";
+    } else {
+      text = "✔ 블러프 회피";
+      cls = "revealWin";
+    }
+  } else if (stage.kind === "dodge") {
+    if (stage.isSuccess) {
+      text = "✈ 회피 성공";
+      cls = "revealDodge";
+    } else {
+      text = "✕ 회피 실패";
+      cls = "revealLose";
+    }
+  } else {
+    // hit
+    if (stage.isSuccess) {
+      text = stage.isCrit ? "✦ 치명타!" : "✔ 적중";
+      cls = stage.isCrit ? "revealCrit" : "revealWin";
+    } else {
+      text = "✕ 빗나감";
+      cls = "revealLose";
+    }
+  }
+  return `<div class="rouletteReveal ${cls}">${text}</div>`;
 }
 
-function buildConicBands(successDeg: number, successPct: number): string {
-  const red = "#c93544";
-  const redD = "#7a1e28";
-  const gray = "#4a4550";
-  const grayD = "#2a2730";
-  const bands = (
-    fromDeg: number,
-    toDeg: number,
-    a: string,
-    b: string,
-    steps: number,
-  ): string => {
-    const parts: string[] = [];
-    const step = (toDeg - fromDeg) / steps;
-    for (let i = 0; i < steps; i++) {
-      const s = fromDeg + i * step;
-      const e = s + step;
-      parts.push(`${i % 2 ? a : b} ${s}deg ${e}deg`);
+/** 단계 종류별 conic 배경: hit=green+gold, bluff=red, dodge=blue. */
+function buildStageConic(stage: RouletteStage): string {
+  const successDeg = (stage.successPct / 100) * 360;
+
+  // 색 팔레트
+  const GOLD = "#e8b63a";
+  const GOLD_D = "#8a6617";
+  const GREEN = "#3aa050";
+  const GREEN_D = "#1e6030";
+  const RED = "#c93544";
+  const RED_D = "#7a1e28";
+  const BLUE = "#3a74c9";
+  const BLUE_D = "#1e467a";
+  const GRAY = "#4a4550";
+  const GRAY_D = "#2a2730";
+
+  let primary: string;
+  let primaryD: string;
+  if (stage.kind === "dodge") {
+    primary = BLUE;
+    primaryD = BLUE_D;
+  } else if (stage.kind === "bluff") {
+    primary = RED;
+    primaryD = RED_D;
+  } else {
+    primary = GREEN;
+    primaryD = GREEN_D;
+  }
+
+  const parts: string[] = [];
+
+  // hit 단계 gold 크리 영역 (성공 영역의 처음 부분)
+  if (stage.kind === "hit" && stage.critPct && stage.critPct > 0) {
+    const critDeg = (stage.critPct / 100) * 360;
+    parts.push(...bands(0, critDeg, GOLD, GOLD_D, 4));
+    if (critDeg < successDeg) {
+      parts.push(...bands(critDeg, successDeg, primary, primaryD, 4));
     }
-    return parts.join(", ");
-  };
-  const sBands =
-    successDeg > 0
-      ? bands(0, successDeg, red, redD, Math.max(2, Math.round(successPct / 10)))
-      : "";
-  const fBands =
-    successDeg < 360
-      ? bands(
-          successDeg,
-          360,
-          gray,
-          grayD,
-          Math.max(2, Math.round((100 - successPct) / 10)),
-        )
-      : "";
-  return [sBands, fBands].filter(Boolean).join(", ");
+  } else if (successDeg > 0) {
+    parts.push(
+      ...bands(0, successDeg, primary, primaryD, Math.max(2, Math.round(stage.successPct / 10))),
+    );
+  }
+
+  if (successDeg < 360) {
+    parts.push(
+      ...bands(
+        successDeg,
+        360,
+        GRAY,
+        GRAY_D,
+        Math.max(2, Math.round((100 - stage.successPct) / 10)),
+      ),
+    );
+  }
+  return parts.join(", ");
+}
+
+function bands(
+  fromDeg: number,
+  toDeg: number,
+  a: string,
+  b: string,
+  steps: number,
+): string[] {
+  const parts: string[] = [];
+  const step = (toDeg - fromDeg) / Math.max(1, steps);
+  for (let i = 0; i < steps; i++) {
+    const s = fromDeg + i * step;
+    const e = s + step;
+    parts.push(`${i % 2 ? a : b} ${s}deg ${e}deg`);
+  }
+  return parts;
+}
+
+// =====================================================================
+// Action log — 최근 카드 플레이 기록 (duel.state.plays 파생)
+// =====================================================================
+
+interface ActionLogEntry {
+  by: string;
+  cardName: string;
+  turn: number;
+  success: boolean;
+  critical: boolean;
+  damageToOpponent: number;
+  damageToSelf: number;
+  heal: number;
+  shieldGained: number;
+}
+
+const ACTION_LOG_MAX_ENTRIES = 8;
+
+function actionLogHtml(app: App): string {
+  const s = app.state;
+  const plays = s.plays as unknown as ActionLogEntry[];
+  const recent = plays.slice(-ACTION_LOG_MAX_ENTRIES).reverse();
+
+  const rows = recent.length
+    ? recent
+        .map((p) => {
+          const isMine = p.by === s.myId;
+          const player = s.players.find((x) => x.connectionId === p.by);
+          const playerName = player?.name ?? "?";
+
+          const results: string[] = [];
+          if (p.damageToOpponent > 0) {
+            results.push(
+              p.critical
+                ? `치명 ${p.damageToOpponent}뎀`
+                : `${p.damageToOpponent}뎀`,
+            );
+          } else if (!p.success) {
+            results.push("빗나감");
+          }
+          if (p.heal > 0) results.push(`회복 ${p.heal}`);
+          if (p.shieldGained > 0) results.push(`방어막 +${p.shieldGained}`);
+          if (p.damageToSelf > 0) results.push(`자해 ${p.damageToSelf}`);
+
+          const tail = results.length ? ` · ${results.join(", ")}` : "";
+          const cls = isMine ? "logEntry-self" : "logEntry-opp";
+          return `
+            <div class="logEntry ${cls}">
+              <span class="logTurn">T${p.turn}</span>
+              <span class="logText">${escapeHtml(playerName)} → ${escapeHtml(
+                p.cardName,
+              )}${escapeHtml(tail)}</span>
+            </div>
+          `;
+        })
+        .join("")
+    : `
+        <div class="logEntry logEntry-sys">
+          <span class="logTurn">—</span>
+          <span class="logText">아직 기록된 플레이 없음</span>
+        </div>
+      `;
+
+  return `
+    <div class="actionLog">
+      <div class="actionLogHeader">
+        <span class="actionLogIcon">❦</span>
+        <span>BATTLE LOG</span>
+      </div>
+      <div class="actionLogBody">${rows}</div>
+    </div>
+  `;
 }
 
 function pileModalHtml(app: App): string {
@@ -1764,12 +2189,15 @@ function zoomCardHtml(app: App): string {
       const target = s.pileModal.side === "me" ? me : opp;
       ownerClass = target?.className ?? undefined;
     }
+    // 줌 카드에도 실시간 데미지 반영 — 내 손패 기준으로 ctx 구성.
+    // (상대 플레이된 카드를 확대하는 경우에도, 계산 주체를 "나"로 보는 게 직관적.)
+    const ctx: CardStatCtx = { me, opp };
     return `
       <div class="zoomCardBackdrop" id="duelZoomBackdrop">
         <div class="zoomCardShell" id="duelZoomShell">
           <button class="zoomCardClose" id="duelZoomClose">✕</button>
           <div class="zoomCardInner">
-            ${cardHtml(card, { size: "hand", owner: ownerClass })}
+            ${cardHtml(card, { size: "hand", owner: ownerClass, ctx })}
           </div>
           <div class="zoomCardHint">배경을 클릭하여 닫기 · ESC</div>
         </div>
@@ -1915,20 +2343,24 @@ function wire(
       app.render();
     });
 
-  // Zoom modal
+  // Zoom modal — 닫을 땐 전체 re-render 하지 않고 backdrop DOM 만 즉시 제거
+  // (full render 는 wire 재실행 + innerHTML 재조립으로 체감 지연이 생김)
+  const closeZoom = () => {
+    app.state.zoomCardId = null;
+    stage.querySelector<HTMLElement>("#duelZoomBackdrop")?.remove();
+  };
   stage
     .querySelector<HTMLElement>("#duelZoomBackdrop")
     ?.addEventListener("click", (e) => {
       if ((e.target as HTMLElement).id === "duelZoomBackdrop") {
-        app.state.zoomCardId = null;
-        app.render();
+        closeZoom();
       }
     });
   stage
     .querySelector<HTMLButtonElement>("#duelZoomClose")
-    ?.addEventListener("click", () => {
-      app.state.zoomCardId = null;
-      app.render();
+    ?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      closeZoom();
     });
 
   // Delegated zoom — field card / pile modal card
@@ -1951,8 +2383,7 @@ function wire(
   const onKey = (e: KeyboardEvent) => {
     if (e.key !== "Escape") return;
     if (app.state.zoomCardId) {
-      app.state.zoomCardId = null;
-      app.render();
+      closeZoom();
       return;
     }
     if (app.state.pileModal) {
@@ -2036,12 +2467,14 @@ function startDrag(
   const offsetY = (startEv.clientY - cardRect.top) / scale;
 
   const me = app.state.players.find((p) => p.connectionId === app.state.myId);
+  const opp = app.state.players.find((p) => p.connectionId !== app.state.myId);
   const ghostEl = document.createElement("div");
   ghostEl.className = "dragGhost";
   ghostEl.innerHTML = cardHtml(card, {
     size: "hand",
     dragging: true,
     owner: me?.className ?? undefined,
+    ctx: { me, opp },
   });
   stage.appendChild(ghostEl);
 

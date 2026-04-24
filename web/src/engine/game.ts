@@ -142,20 +142,22 @@ export class Game {
     current.fillHand();
 
     // 컨트롤러 패시브: 상대 턴 시작마다 상대 손패 1장을 이번 턴 사용 불가(봉인)
-    // current 는 이번 턴 플레이어, opp 는 상대.
-    // opp 가 컨트롤러면 current(= opp 의 상대)의 카드 1장 침묵.
+    // 이미 침묵된 카드(W3 약점 포착 등으로) 는 후보에서 제외 → 항상 새 카드 1장 추가 침묵.
     if (opp.className === "warden" && current.hand.length > 0) {
-      const silenced = this.rng.choice(current.hand);
-      if (!current.silencedCards.includes(silenced.id)) {
+      const candidates = current.hand.filter(
+        (c) => !current.silencedCards.includes(c.id),
+      );
+      if (candidates.length > 0) {
+        const silenced = this.rng.choice(candidates);
         current.silencedCards.push(silenced.id);
+        this.log.push({
+          type: "passive_silence",
+          turn: this.turn,
+          player: opp.name,
+          silenced_card: silenced.id,
+          silenced_name: silenced.name,
+        });
       }
-      this.log.push({
-        type: "passive_silence",
-        turn: this.turn,
-        player: opp.name,
-        silenced_card: silenced.id,
-        silenced_name: silenced.name,
-      });
     }
 
     if (this.checkEnd()) return;

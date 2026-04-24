@@ -38,7 +38,7 @@ class CardResult:
     card_id: str
     caster: str
     bet: int
-    success: bool = True  # hit/crit/fixed 는 명중 성공, utility 는 시전 성공
+    success: bool = True  # 명중→데미지 적용까지 성공한 경우 True. 회피/블러프/miss 모두 False
     critical: bool = False
     damage_to_opponent: int = 0
     damage_to_self: int = 0
@@ -49,6 +49,11 @@ class CardResult:
     sub_results: list[dict[str, Any]] = field(default_factory=list)
     double_proc: bool = False  # BN07 행운의 동전 발동 여부
     jackpot_roll: Optional[int] = None
+    # ----- 새 룰렛 연출용 (UI 가 분리된 룰렛을 굴리기 위한 데이터) -----
+    bluff_chance: int = 0       # 시전 시 시전자에게 걸려있던 블러프 확률 (0이면 미발동)
+    bluff_triggered: bool = False  # 블러프가 실제로 발동해 강제 miss 됐는지
+    dodge_chance: int = 0       # 시전 후 적에게 걸려있던 회피 확률 (0이면 미발동)
+    dodged: bool = False        # 회피 성공 여부
 
 
 # ======================================================================
@@ -73,7 +78,12 @@ def compute_bet_cap(card: Card, caster: Player) -> int:
     return cap
 
 
-def validate_card_play(card: Card, caster: Player, game_turn: int) -> None:
+def validate_card_play(
+    card: Card,
+    caster: Player,
+    game_turn: int,
+    opponent: Optional[Player] = None,
+) -> None:
     """사용 불가 시 InvalidPlayError 발생."""
     if card.signature:
         if card.id in caster.sig_used_ids:
@@ -93,6 +103,17 @@ def validate_card_play(card: Card, caster: Player, game_turn: int) -> None:
             raise InvalidPlayError(
                 f"{card.id}: 내 HP가 {hp_max} 이하여야 함 (현재 {caster.hp})"
             )
+        # W5 정의 집행: 내 HP < 상대 HP
+        if cond.get("self_hp_below_opp"):
+            if opponent is None:
+                raise InvalidPlayError(
+                    f"{card.id}: 상대 정보 없이 검증 불가"
+                )
+            if caster.hp >= opponent.hp:
+                raise InvalidPlayError(
+                    f"{card.id}: 내 HP가 상대보다 낮아야 함 "
+                    f"(내 {caster.hp} / 상대 {opponent.hp})"
+                )
 
 
 # ======================================================================
@@ -127,23 +148,35 @@ def _compute_hit_accuracy(card: Card, caster: Player, opponent: Player, bet: int
     return max(0, min(100, acc))
 
 
-def _compute_crit_chance(card: Card, caster: Player, bet: int) -> int:
-    crit = card.base_crit + card.bet_crit * bet
-    # BN05: 모든 크리 +10%
+def _compute_crit_chance(
+    card: Card,
+    caster: Player,
+    opponent: Player,
+    bet: int,
+) -> int:
+    """치명타 확률 = floor(현재 명중률 / 10) + 카드 보너스 + 부운 + 다음-1회 버프.
+
+    명중률에 의해 자동 결정되는 베이스 + 카드별 추가 보너스 모델.
+    """
+    acc = _compute_hit_accuracy(card, caster, opponent, bet)
+    crit = acc // 10
+    # 카드 고유 크리 보너스
+    crit += card.base_crit + card.bet_crit * bet
+    # BN05 정밀의 눈
     crit += _boon_effect(caster, "crit_bonus", 0)
-    # BN06: 베팅 1당 +1%
+    # BN06 광기의 인장
     crit += _boon_effect(caster, "bet_crit_bonus_per", 0) * bet
-    # G11 미래 보기: 다음 카드 크리 +20%
+    # G11 미래 보기
     crit += caster.next_crit_bonus
     return max(0, min(100, crit))
 
 
 # '다음 1장' 버프 소모 규칙:
-#   - next_acc_bonus     : Hit 카드가 적용 시 소모
-#   - next_crit_bonus    : Crit 카드가 적용 시 소모
+#   - next_acc_bonus     : Hit/Crit 카드가 적용 시 소모 (acc 계산 직후)
+#   - next_crit_bonus    : Crit 카드가 적용 시 소모 (crit 굴림 직후)
 #   - guarantee_next_crit: Crit 카드가 적용 시 소모
-#   - next_attack_miss_chance: 공격 시 _roll_hit_with_modifiers 에서 소모
-#   - dodge_next_percent : 상대 공격 시 _roll_hit_with_modifiers 에서 소모
+#   - next_attack_miss_chance: 공격 시 _try_consume_bluff 에서 소모 (별도 룰렛)
+#   - dodge_next_percent : 상대 공격 시 _try_consume_dodge 에서 소모 (별도 룰렛)
 #
 # 이렇게 타입별로 나눈 이유:
 #   B6 함성 쓰고 B10 회복(utility) 써도 다음 공격에 +25% 명중이 살아있어야 자연스러움.
@@ -212,15 +245,90 @@ def _compute_base_attack_damage(card: Card, caster: Player, opponent: Player) ->
     dmg += _boon_effect(caster, "damage_bonus_all", 0)
     # B15 베르세르크: 공격 +8
     dmg += caster.berserk_damage_bonus
-    # W2 처벌의 빛: 상대 직전 턴 miss 시 +8
-    punish = card.extra.get("punish_missed_prev", 0)
-    if punish and opponent.missed_last_turn:
-        dmg += punish
-    # W5 정의 집행: 상대 HP > 내 HP 시 +8
-    judgment_bonus = card.extra.get("judgment_bonus", 0)
-    if judgment_bonus and opponent.hp > caster.hp:
-        dmg += judgment_bonus
+    # W2 처벌의 빛: 상대 직전 턴 적중 시 +8
+    punish_hit = card.extra.get("punish_hit_prev", 0)
+    if punish_hit and opponent.hit_last_turn:
+        dmg += punish_hit
     return dmg
+
+
+def _try_consume_bluff(
+    caster: Player,
+    rng: random.Random,
+    result: CardResult,
+) -> bool:
+    """블러프(G12 force_miss_next) 소모 + 발동 판정. True = 발동(강제 miss).
+
+    명중 판정과 별도로 시전 시 1회 굴림. UI 룰렛은 별도 표기.
+    """
+    if caster.next_attack_miss_chance <= 0:
+        return False
+    chance = caster.next_attack_miss_chance
+    caster.next_attack_miss_chance = 0
+    result.bluff_chance = chance
+    if rng.randint(1, 100) <= chance:
+        result.bluff_triggered = True
+        result.notes.append(f"블러프 발동 — {chance}% 강제 miss")
+        return True
+    return False
+
+
+def _try_consume_dodge(
+    opponent: Player,
+    rng: random.Random,
+    result: CardResult,
+) -> bool:
+    """회피(G9/W12 dodge_next) 소모 + 발동 판정. True = 회피 성공(데미지 0)."""
+    if opponent.dodge_next_percent <= 0:
+        return False
+    chance = opponent.dodge_next_percent
+    opponent.dodge_next_percent = 0
+    result.dodge_chance = chance
+    if rng.randint(1, 100) <= chance:
+        result.dodged = True
+        result.notes.append(f"{opponent.name} 회피 성공 ({chance}%)")
+        return True
+    return False
+
+
+def _post_attack_effects(
+    card: Card,
+    caster: Player,
+    bet: int,
+    result: CardResult,
+    successful_hits: int,
+    total_damage: int,
+) -> None:
+    """공격 카드 공통 후처리: 흡혈/자해/빗맞 자해/드로우."""
+    # 흡혈 (B3 피의 대가)
+    lifesteal = card.extra.get("lifesteal", 0)
+    if lifesteal and successful_hits > 0:
+        healed = caster.heal(int(total_damage * lifesteal))
+        result.heal += healed
+
+    # 사용 시 자해 (B8 광기의 일격) — 명중과 무관
+    self_dmg = card.extra.get("self_damage", 0)
+    if self_dmg:
+        _apply_self_damage(caster, self_dmg, result)
+
+    # 빗맞 시 자해 (B2 광폭한 돌진, G15 올인 일부)
+    miss_self = card.extra.get("self_damage_on_miss")
+    if miss_self and not result.success:
+        if miss_self == "bet_amount":
+            _apply_self_damage(caster, bet, result)
+        else:
+            _apply_self_damage(caster, int(miss_self), result)
+
+    # 추가 드로우
+    draw_n = card.extra.get("draw", 0)
+    if draw_n:
+        drawn = caster.draw(draw_n)
+        result.drawn_cards.extend(c.id for c in drawn)
+
+    # 자기 회복 (W8 신성한 화살 — fixed 카드, 명중과 무관하게 항상 회복)
+    self_heal = card.extra.get("self_heal", 0)
+    if self_heal and card.category == "attack":
+        result.heal += caster.heal(int(self_heal))
 
 
 def _execute_hit(
@@ -231,90 +339,63 @@ def _execute_hit(
     result: CardResult,
     rng: random.Random,
 ) -> None:
+    """광전사 hit 카드 실행. 데미지 흐름:
+        블러프(별도) → 명중 → 데미지 계산 → 회피(별도) → 감쇠/실드.
+    """
     acc = _compute_hit_accuracy(card, caster, opponent, bet)
-    # 적용 직후 소모 (Hit 카드 시전자 관점)
-    caster.next_acc_bonus = 0
-    base_damage = _compute_base_attack_damage(card, caster, opponent)
-    # fixed/hit 공통으로 bet_damage 필드도 적용 (hit 카드는 대부분 0이라 영향 X)
-    base_damage += card.bet_damage * bet
-    # 분노 스택 (공격 카드만) — 카드 단위 1회 소모
-    base_damage += _consume_rage(caster)
-    # 다회타
-    hit_count = card.extra.get("hit_count", 1)
+    caster.next_acc_bonus = 0  # 적용 직후 소모
 
+    bluffed = _try_consume_bluff(caster, rng, result)
+
+    base_damage = _compute_base_attack_damage(card, caster, opponent)
+    base_damage += card.bet_damage * bet
+    base_damage += _consume_rage(caster)
+
+    hit_count = card.extra.get("hit_count", 1)
     total_damage = 0
     successful_hits = 0
+    dodge_consumed = False
+
     for i in range(hit_count):
-        hit = _roll_hit_with_modifiers(acc, caster, opponent, rng, result)
-        if hit:
-            successful_hits += 1
-            dmg = base_damage
-            if result.double_proc:
-                dmg *= 2
-            dealt = _apply_damage_to_opponent(dmg, card, caster, opponent, result)
-            total_damage += dealt
-            result.sub_results.append(
-                {"hit_index": i + 1, "hit": True, "damage": dealt}
-            )
-        else:
+        if bluffed:
             caster.record_miss()
-            result.sub_results.append({"hit_index": i + 1, "hit": False, "damage": 0})
+            result.sub_results.append(
+                {"hit_index": i + 1, "hit": False, "bluffed": True, "damage": 0}
+            )
+            continue
+
+        hit = rng.randint(1, 100) <= acc
+        if not hit:
+            caster.record_miss()
+            result.sub_results.append(
+                {"hit_index": i + 1, "hit": False, "damage": 0}
+            )
+            continue
+
+        dmg = base_damage * (2 if result.double_proc else 1)
+
+        # 회피 — 카드당 1회만 굴림
+        if not dodge_consumed:
+            dodge_consumed = True
+            if _try_consume_dodge(opponent, rng, result):
+                result.sub_results.append(
+                    {"hit_index": i + 1, "hit": True, "dodged": True, "damage": 0}
+                )
+                continue
+
+        dealt = _apply_damage_to_opponent(dmg, card, caster, opponent, result)
+        total_damage += dealt
+        successful_hits += 1
+        result.sub_results.append(
+            {"hit_index": i + 1, "hit": True, "damage": dealt}
+        )
 
     result.success = successful_hits > 0
     result.damage_to_opponent = total_damage
     if result.success:
         caster.record_hit(total_damage, critical=False)
 
-    # 흡혈 (B3 피의 대가)
-    lifesteal = card.extra.get("lifesteal", 0)
-    if lifesteal and successful_hits > 0:
-        healed = caster.heal(int(total_damage * lifesteal))
-        result.heal += healed
-
-    # 자해: 사용 시 자해 (B8 광기의 일격) — 명중과 무관하게 발동
-    self_dmg = card.extra.get("self_damage", 0)
-    if self_dmg:
-        _apply_self_damage(caster, self_dmg, result)
-
-    # 자해: 빗나감 시 (B2 광폭한 돌진, G15 올인 일부)
-    miss_self = card.extra.get("self_damage_on_miss")
-    if miss_self and not result.success:
-        if miss_self == "bet_amount":
-            _apply_self_damage(caster, bet, result)
-        else:
-            _apply_self_damage(caster, int(miss_self), result)
-
-    # 추가 드로우 (G7 야바위꾼의 손)
-    draw_n = card.extra.get("draw", 0)
-    if draw_n:
-        drawn = caster.draw(draw_n)
-        result.drawn_cards.extend(c.id for c in drawn)
-
-
-def _roll_hit_with_modifiers(
-    acc: int,
-    caster: Player,
-    opponent: Player,
-    rng: random.Random,
-    result: CardResult,
-) -> bool:
-    """최종 명중 판정. 블러프/회피 포함."""
-    hit = rng.randint(1, 100) <= acc
-    # G12 블러프: 내 다음 공격 miss 강제 (시전자 기준, 공격할 때 체크)
-    if hit and caster.next_attack_miss_chance > 0:
-        chance = caster.next_attack_miss_chance
-        caster.next_attack_miss_chance = 0
-        if rng.randint(1, 100) <= chance:
-            hit = False
-            result.notes.append(f"블러프에 걸림 — {chance}% 강제 miss")
-    # 회피 (공격 받는 쪽의 G9/W12)
-    if hit and opponent.dodge_next_percent > 0:
-        chance = opponent.dodge_next_percent
-        opponent.dodge_next_percent = 0
-        if rng.randint(1, 100) <= chance:
-            hit = False
-            result.notes.append(f"{opponent.name} 회피 ({chance}%)")
-    return hit
+    _post_attack_effects(card, caster, bet, result, successful_hits, total_damage)
 
 
 def _execute_crit(
@@ -325,35 +406,30 @@ def _execute_crit(
     result: CardResult,
     rng: random.Random,
 ) -> None:
-    # Crit 카드는 항상 맞음 (회피는 Hit 류에만 작용한다고 가정 — 디자인 문서 기준 명시 없음,
-    # 단 G9/W12 "다음 받는 공격" 문구는 일반적 공격을 의미하므로 Crit 에도 적용).
-    # 여기선 일관성을 위해 Hit/Crit 둘 다 회피 체크.
-    acc = 100  # Crit 은 명중 자체는 항상 성공
-    # 블러프/회피 적용
-    hit = _roll_hit_with_modifiers(acc, caster, opponent, rng, result)
+    """도박사 crit 카드 실행. 데미지 흐름:
+        블러프 → 명중 → 크리 판정 → 데미지 계산 → 회피 → 감쇠/실드.
+    """
+    acc = _compute_hit_accuracy(card, caster, opponent, bet)
+    caster.next_acc_bonus = 0  # crit 카드도 명중 보정 받음 (B6 등)
 
-    base_damage = _compute_base_attack_damage(card, caster, opponent)
-    base_damage += card.bet_damage * bet
-    base_damage += _consume_rage(caster)
+    # 블러프 (별도 룰렛)
+    bluffed = _try_consume_bluff(caster, rng, result)
+    if bluffed:
+        caster.record_miss()
+        result.success = False
+        return
 
-    # damage_range (G2 야바위: 8~22 랜덤)
-    rng_range = card.extra.get("damage_range")
-    if rng_range:
-        lo, hi = rng_range
-        base_damage = rng.randint(lo, hi)
-        # 야바위는 damage 필드 기준이 아니라 랜덤값이 base. BN04 등은 나중에 더해야 하지만
-        # 단순화를 위해 기본값을 덮어쓰고 별도 보정:
-        base_damage += _boon_effect(caster, "damage_bonus_all", 0)
-        base_damage += caster.berserk_damage_bonus
-        # W2/W5 보너스는 의미상 공격 카드의 punish/judgment 필드가 있는 경우만
-        if card.extra.get("punish_missed_prev") and opponent.missed_last_turn:
-            base_damage += card.extra["punish_missed_prev"]
-        if card.extra.get("judgment_bonus") and opponent.hp > caster.hp:
-            base_damage += card.extra["judgment_bonus"]
+    # 명중 판정
+    hit = rng.randint(1, 100) <= acc
+    if not hit:
+        caster.record_miss()
+        result.success = False
+        # G15 self_damage_on_miss = "bet_amount" 는 "크리 실패" 조건이므로
+        # 일반 명중 실패에서는 자해하지 않음.
+        return
 
     # 크리 판정
-    crit_chance = _compute_crit_chance(card, caster, bet)
-    # 적용 직후 소모 (Crit 카드 시전자 관점)
+    crit_chance = _compute_crit_chance(card, caster, opponent, bet)
     caster.next_crit_bonus = 0
     if caster.guarantee_next_crit:
         is_crit = True
@@ -362,18 +438,29 @@ def _execute_crit(
     else:
         is_crit = rng.randint(1, 100) <= crit_chance
 
-    if not hit:
-        # 블러프/회피로 빗나감 → 데미지 0
-        caster.record_miss()
-        result.success = False
-        # G15 올인 시그니처의 "크리 실패 시 베팅만큼 자해" 는 크리 실패 조건이므로
-        # 명중 실패(회피)도 데미지 0 + 자해 아님. 단 크리 실패랑은 별건.
-        return
+    # 데미지 계산
+    base_damage = _compute_base_attack_damage(card, caster, opponent)
+    base_damage += card.bet_damage * bet
+    base_damage += _consume_rage(caster)
 
-    dmg = base_damage * card.crit_mult if is_crit else base_damage
-    dmg = int(dmg)
+    # damage_range (G2 야바위)
+    rng_range = card.extra.get("damage_range")
+    if rng_range:
+        lo, hi = rng_range
+        roll = rng.randint(lo, hi)
+        # 카드 base damage 를 랜덤값으로 교체. 외부 보너스는 그대로 더해짐.
+        base_damage = base_damage - card.damage + roll
+
+    dmg = int(base_damage * card.crit_mult) if is_crit else base_damage
     if result.double_proc:
         dmg *= 2
+
+    # 회피 (별도 룰렛)
+    if _try_consume_dodge(opponent, rng, result):
+        # 회피 성공 → 데미지 0
+        result.success = False
+        result.critical = is_crit
+        return
 
     dealt = _apply_damage_to_opponent(dmg, card, caster, opponent, result)
     result.success = True
@@ -381,10 +468,12 @@ def _execute_crit(
     result.damage_to_opponent = dealt
     caster.record_hit(dealt, critical=is_crit)
 
-    # G15 올인 시그니처: 크리 실패 시 베팅한 만큼 자해
+    # G15: 크리 실패 시 베팅만큼 자해
     miss_self = card.extra.get("self_damage_on_miss")
     if miss_self == "bet_amount" and not is_crit:
         _apply_self_damage(caster, bet, result)
+
+    _post_attack_effects(card, caster, bet, result, 1 if dealt > 0 else 0, dealt)
 
 
 def _execute_fixed(
@@ -395,22 +484,51 @@ def _execute_fixed(
     result: CardResult,
     rng: random.Random,
 ) -> None:
+    """컨트롤러 fixed 카드 실행. 기본 100% 명중. 데미지 흐름:
+        블러프 → (명중 100%) → 데미지 계산 → 회피 → 감쇠/실드.
+
+    W15 최후의 심판은 모든 효과를 무시한 진정한 고정 데미지 — 별도 처리.
+    """
+    # ----- W15 특수 분기: 모든 효과 무시한 고정 데미지 -----
+    if card.extra.get("final_judgment_self_only"):
+        raw = caster.total_bet
+        before = opponent.hp
+        opponent.hp = max(0, opponent.hp - raw)
+        actual = before - opponent.hp
+        opponent.total_damage_taken += actual
+        result.success = True
+        result.damage_to_opponent = actual
+        if actual > 0:
+            caster.record_hit(actual, critical=False)
+        result.notes.append(f"확정 피해 {actual} (모든 효과 무시)")
+        # 부수 효과는 무시. 후속 자해/회복 등도 적용 안 함.
+        return
+
+    # ----- 일반 fixed 흐름 -----
+    bluffed = _try_consume_bluff(caster, rng, result)
+    if bluffed:
+        # 블러프 발동 → 강제 miss (데미지 0). 부수 효과는 발동 안 함.
+        caster.record_miss()
+        result.success = False
+        return
+
     base = _compute_base_attack_damage(card, caster, opponent)
     base += card.bet_damage * bet
     base += _consume_rage(caster)
 
-    # W6 인내의 반격: 데미지 = 받은 총 뎀 / 3 (최대 35). 베팅 상관없이 덮어쓰기.
+    # W6 인내의 반격: 받은 누적 피해 × ratio
     patience = card.extra.get("patience")
     if patience:
-        div = patience.get("div", 3)
-        cap = patience.get("cap", 35)
-        base = min(cap, caster.total_damage_taken // div)
-
-    # W15 최후의 심판: 상대 총 베팅 HP = 데미지 (확정)
-    if card.extra.get("final_judgment"):
-        base = opponent.total_bet
+        ratio = patience.get("ratio", 0.3)
+        base = int(caster.total_damage_taken * ratio)
 
     dmg = base * (2 if result.double_proc else 1)
+
+    # 회피 (별도 룰렛)
+    if _try_consume_dodge(opponent, rng, result):
+        result.success = False
+        # 회피 성공 시 부수 효과(자기 방어/침묵/결박/회복) 도 발동 안 함.
+        return
 
     dealt = _apply_damage_to_opponent(dmg, card, caster, opponent, result)
     result.success = True
@@ -418,26 +536,33 @@ def _execute_fixed(
     if dealt > 0:
         caster.record_hit(dealt, critical=False)
 
-    # W7 방패 강타: 자기 방어 +8
+    # W7 방패 강타: 자기 방어
     self_shield = card.extra.get("self_shield")
     if self_shield:
         caster.shield += self_shield
         result.shield_gained += self_shield
 
-    # W3 약점 포착: 상대 손패 1장 랜덤 침묵
+    # W3 약점 포착: 패시브로 봉인된 카드와 다른 카드를 1장 추가 침묵
     silence_random = card.extra.get("silence_random")
     if silence_random and opponent.hand:
-        targets = rng.sample(opponent.hand, min(silence_random, len(opponent.hand)))
-        for t in targets:
-            opponent.silenced_cards.append(t.id)
-            result.notes.append(f"{t.name} 침묵")
+        candidates = [c for c in opponent.hand if c.id not in opponent.silenced_cards]
+        if candidates:
+            targets = rng.sample(candidates, min(silence_random, len(candidates)))
+            for t in targets:
+                opponent.silenced_cards.append(t.id)
+                result.notes.append(f"{t.name} 추가 침묵")
 
-    # W4 결박의 사슬: 상대 다음 턴 베팅 상한 제한
+    # W4 결박의 사슬
     bet_cap = card.extra.get("opponent_max_bet_next")
     if bet_cap is not None:
         opponent.bet_cap_override = bet_cap
         opponent.bet_cap_override_turns = 1
         result.notes.append(f"{opponent.name} 다음 턴 베팅 상한 {bet_cap}")
+
+    # W8 신성한 화살: 자기 회복
+    self_heal = card.extra.get("self_heal", 0)
+    if self_heal:
+        result.heal += caster.heal(int(self_heal))
 
 
 # ======================================================================
@@ -701,7 +826,7 @@ def execute_card(
     rng = rng or random.Random()
 
     if not _is_double_down_repeat:
-        validate_card_play(card, caster, game_turn)
+        validate_card_play(card, caster, game_turn, opponent)
 
     # 베팅 상한 적용
     cap = compute_bet_cap(card, caster)
@@ -877,20 +1002,25 @@ class Game:
         # 2) 손패 보충
         current.fill_hand()
 
-        # 3) 컨트롤러 패시브: 상대 손패 1장 공개
-        if current.class_name == "warden" and opp.hand:
-            peeked = self.rng.choice(opp.hand)
-            self.log.append(
-                {
-                    "type": "peek",
-                    "turn": self.turn,
-                    "player": current.name,
-                    "peeked_card": peeked.id,
-                    "peeked_name": peeked.name,
-                }
-            )
-            # Agent 가 활용할 수 있게 최신 peek 을 game 에 노출
-            current.last_peek = peeked  # type: ignore[attr-defined]
+        # 3) 컨트롤러 패시브: 상대(워든) 가 있을 때, current 의 카드 1장을 침묵.
+        #    서버(worker/room.ts) 와 동일 규칙. 이미 침묵된 카드는 후보에서 제외.
+        if opp.class_name == "warden" and current.hand:
+            candidates = [
+                c for c in current.hand if c.id not in current.silenced_cards
+            ]
+            if candidates:
+                silenced = self.rng.choice(candidates)
+                current.silenced_cards.append(silenced.id)
+                self.log.append(
+                    {
+                        "type": "passive_silence",
+                        "turn": self.turn,
+                        "by": opp.name,
+                        "victim": current.name,
+                        "silenced_card": silenced.id,
+                        "silenced_name": silenced.name,
+                    }
+                )
 
         # 4) 즉사 체크 (턴 시작 독/자해로 죽은 경우)
         if self._check_end():

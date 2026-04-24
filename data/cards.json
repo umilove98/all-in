@@ -1,11 +1,11 @@
 {
   "meta": {
-    "version": "v2",
+    "version": "v3",
     "total_cards": 45,
     "card_types": {
-      "hit": "명중률에 기반하여 적을 공격합니다.",
-      "crit": "적을 공격합니다. 치명타 발동이 가능하며 발동시 피해량이 증가합니다.",
-      "fixed": "적을 공격합니다. 배팅에 따라 공격력이 달라집니다.",
+      "hit": "광전사 전용. 명중률에 기반하여 적을 공격합니다.",
+      "crit": "도박사 전용. 명중하면 치명타 판정을 굴립니다. 치명타 확률은 명중률/10을 기본으로 합니다.",
+      "fixed": "컨트롤러 전용. 100% 명중하지만 회피로 무효화될 수 있습니다.",
       "utility": "자신에게 이로운 효과를 사용합니다."
     },
     "categories": [
@@ -18,7 +18,10 @@
       "signature_usage_per_game": 1,
       "signature_unlock_turn": 3,
       "signature_per_turn_limit": 1,
-      "default_bet_max": 10
+      "default_bet_max": 10,
+      "default_bet_acc": 1,
+      "default_bet_damage": 1,
+      "crit_per_acc_div": 10
     }
   },
   "berserker": [
@@ -29,10 +32,10 @@
       "type": "hit",
       "category": "attack",
       "cost": 0,
-      "damage": 18,
-      "base_acc": 40,
+      "damage": 50,
+      "base_acc": 80,
       "max_bet": 10,
-      "bet_acc": 6,
+      "bet_acc": 1,
       "desc": ""
     },
     {
@@ -42,12 +45,12 @@
       "type": "hit",
       "category": "attack",
       "cost": 0,
-      "damage": 25,
-      "base_acc": 30,
+      "damage": 60,
+      "base_acc": 70,
       "max_bet": 10,
-      "bet_acc": 5,
-      "self_damage_on_miss": 5,
-      "desc": ""
+      "bet_acc": 1,
+      "self_damage_on_miss": 8,
+      "desc": "공격이 빗나가면 8의 자해를 입습니다."
     },
     {
       "id": "B3",
@@ -56,12 +59,12 @@
       "type": "hit",
       "category": "attack",
       "cost": 0,
-      "damage": 22,
-      "base_acc": 50,
+      "damage": 45,
+      "base_acc": 75,
       "max_bet": 10,
-      "bet_acc": 5,
+      "bet_acc": 1,
       "lifesteal": 0.3,
-      "desc": ""
+      "desc": "공격에 성공하면 입힌 피해의 30%만큼 체력을 회복합니다."
     },
     {
       "id": "B4",
@@ -70,12 +73,12 @@
       "type": "hit",
       "category": "attack",
       "cost": 0,
-      "damage": 10,
-      "base_acc": 60,
+      "damage": 18,
+      "base_acc": 75,
       "max_bet": 10,
-      "bet_acc": 4,
+      "bet_acc": 1,
       "hit_count": 3,
-      "desc": ""
+      "desc": "명중 판정을 3번 굴립니다. 각 적중마다 데미지가 적용됩니다."
     },
     {
       "id": "B5",
@@ -84,13 +87,13 @@
       "type": "hit",
       "category": "attack",
       "cost": 0,
-      "damage": 30,
-      "base_acc": 30,
+      "damage": 55,
+      "base_acc": 60,
       "max_bet": 10,
-      "bet_acc": 5,
+      "bet_acc": 1,
       "execute_threshold": 30,
-      "execute_bonus_acc": 20,
-      "desc": ""
+      "execute_bonus_acc": 25,
+      "desc": "상대 HP가 30 이하일 때 명중률이 +25%됩니다."
     },
     {
       "id": "B6",
@@ -101,7 +104,7 @@
       "cost": 0,
       "max_bet": 0,
       "next_acc_bonus": 25,
-      "desc": ""
+      "desc": "다음 사용 카드 1장의 명중률이 +25%됩니다."
     },
     {
       "id": "B7",
@@ -112,7 +115,7 @@
       "cost": 0,
       "max_bet": 0,
       "shield": 12,
-      "desc": ""
+      "desc": "방어막을 12 얻습니다."
     },
     {
       "id": "B8",
@@ -121,12 +124,12 @@
       "type": "hit",
       "category": "attack",
       "cost": 0,
-      "damage": 32,
-      "base_acc": 25,
+      "damage": 70,
+      "base_acc": 65,
       "max_bet": 10,
-      "bet_acc": 6,
+      "bet_acc": 1,
       "self_damage": 8,
-      "desc": ""
+      "desc": "사용 시 자신이 8의 피해를 받습니다."
     },
     {
       "id": "B9",
@@ -137,7 +140,7 @@
       "cost": 0,
       "max_bet": 0,
       "shield": 15,
-      "desc": ""
+      "desc": "방어막을 15 얻습니다."
     },
     {
       "id": "B10",
@@ -148,7 +151,7 @@
       "cost": 0,
       "max_bet": 0,
       "self_heal": 18,
-      "desc": ""
+      "desc": "체력을 18 회복합니다."
     },
     {
       "id": "B11",
@@ -159,7 +162,7 @@
       "cost": 0,
       "max_bet": 0,
       "rage_stack": 1,
-      "desc": ""
+      "desc": "분노 스택을 1 얻습니다. 다음 공격 카드의 데미지가 스택당 +8 증가합니다."
     },
     {
       "id": "B12",
@@ -171,7 +174,7 @@
       "max_bet": 0,
       "search_attack": true,
       "draw": 1,
-      "desc": ""
+      "desc": "덱에서 공격 카드 1장을 손에 가져오고 카드 1장을 추가로 뽑습니다."
     },
     {
       "id": "B13",
@@ -180,14 +183,14 @@
       "type": "hit",
       "category": "attack",
       "cost": 0,
-      "damage": 40,
-      "base_acc": 50,
+      "damage": 75,
+      "base_acc": 80,
       "max_bet": 10,
-      "bet_acc": 5,
+      "bet_acc": 1,
       "condition": {
         "self_hp_max": 30
       },
-      "desc": ""
+      "desc": "내 HP가 30 이하일 때만 사용할 수 있습니다."
     },
     {
       "id": "B14",
@@ -197,11 +200,11 @@
       "category": "signature",
       "signature": true,
       "cost": 0,
-      "damage": 50,
-      "base_acc": 0,
+      "damage": 60,
+      "base_acc": 30,
       "max_bet": 15,
-      "bet_acc": 6,
-      "desc": ""
+      "bet_acc": 4,
+      "desc": "베팅 1당 명중률이 +4% 상승합니다. 최대 베팅 15."
     },
     {
       "id": "B15",
@@ -218,7 +221,7 @@
         "damage_bonus": 8,
         "self_damage_per_turn": 5
       },
-      "desc": ""
+      "desc": "3턴간 모든 공격 카드의 명중률 +20%, 데미지 +8. 매 턴 시작 시 자해 5."
     }
   ],
   "gambler": [
@@ -229,11 +232,13 @@
       "type": "crit",
       "category": "attack",
       "cost": 0,
-      "damage": 15,
-      "base_crit": 30,
-      "crit_mult": 2.5,
+      "damage": 25,
+      "base_acc": 70,
       "max_bet": 10,
-      "bet_crit": 4,
+      "bet_acc": 1,
+      "base_crit": 0,
+      "bet_crit": 0,
+      "crit_mult": 2,
       "desc": ""
     },
     {
@@ -244,14 +249,16 @@
       "category": "attack",
       "cost": 0,
       "damage_range": [
-        8,
-        22
+        20,
+        35
       ],
-      "base_crit": 50,
-      "crit_mult": 2.5,
+      "base_acc": 60,
       "max_bet": 10,
-      "bet_crit": 3,
-      "desc": ""
+      "bet_acc": 1,
+      "base_crit": 0,
+      "bet_crit": 0,
+      "crit_mult": 2,
+      "desc": "데미지가 20~35 사이에서 무작위로 결정됩니다."
     },
     {
       "id": "G3",
@@ -260,13 +267,15 @@
       "type": "crit",
       "category": "attack",
       "cost": 0,
-      "damage": 18,
-      "base_crit": 40,
-      "crit_mult": 2.5,
+      "damage": 30,
+      "base_acc": 60,
       "max_bet": 10,
-      "bet_crit": 5,
+      "bet_acc": 1,
+      "base_crit": 0,
+      "bet_crit": 0,
+      "crit_mult": 2,
       "ignore_shield": true,
-      "desc": ""
+      "desc": "상대의 방어막을 무시합니다."
     },
     {
       "id": "G4",
@@ -294,7 +303,7 @@
           }
         }
       },
-      "desc": ""
+      "desc": "1d10 주사위를 굴려 결과에 따라 효과가 달라집니다. 베팅 2당 +1 보정."
     },
     {
       "id": "G5",
@@ -305,7 +314,7 @@
       "cost": 0,
       "max_bet": 0,
       "repeat_last": true,
-      "desc": ""
+      "desc": "직전에 사용한 카드를 베팅 0으로 다시 한 번 발동합니다."
     },
     {
       "id": "G6",
@@ -315,24 +324,28 @@
       "category": "attack",
       "cost": 0,
       "damage": 20,
-      "base_crit": 20,
-      "crit_mult": 3.5,
+      "base_acc": 50,
       "max_bet": 10,
-      "bet_crit": 6,
-      "desc": ""
+      "bet_acc": 1,
+      "base_crit": 0,
+      "bet_crit": 3,
+      "crit_mult": 2,
+      "desc": "베팅 1당 치명타 확률이 +3% 추가됩니다."
     },
     {
       "id": "G7",
       "name": "야바위꾼의 손",
       "name_en": "Trickster's Hand",
-      "type": "hit",
+      "type": "crit",
       "category": "attack",
       "cost": 0,
-      "damage": 15,
-      "base_acc": 70,
+      "damage": 20,
+      "base_acc": 80,
       "max_bet": 10,
-      "bet_acc": 3,
-      "draw": 1,
+      "bet_acc": 1,
+      "base_crit": 0,
+      "bet_crit": 0,
+      "crit_mult": 2,
       "desc": ""
     },
     {
@@ -342,11 +355,13 @@
       "type": "crit",
       "category": "attack",
       "cost": 0,
-      "damage": 22,
-      "base_crit": 50,
-      "crit_mult": 2,
+      "damage": 35,
+      "base_acc": 50,
       "max_bet": 10,
-      "bet_crit": 5,
+      "bet_acc": 1,
+      "base_crit": 0,
+      "bet_crit": 0,
+      "crit_mult": 2,
       "desc": ""
     },
     {
@@ -358,7 +373,7 @@
       "cost": 0,
       "max_bet": 0,
       "dodge_next": 50,
-      "desc": ""
+      "desc": "다음에 받는 공격을 50% 확률로 회피합니다."
     },
     {
       "id": "G10",
@@ -369,7 +384,7 @@
       "cost": 0,
       "max_bet": 0,
       "redraw_hand": true,
-      "desc": ""
+      "desc": "현재 손패를 모두 버리고 같은 수만큼 다시 뽑습니다."
     },
     {
       "id": "G11",
@@ -381,7 +396,7 @@
       "max_bet": 0,
       "deck_peek": 3,
       "next_crit_bonus": 20,
-      "desc": ""
+      "desc": "내 덱 상단 3장을 확인하고 다음 사용 카드의 치명타 확률 +20%."
     },
     {
       "id": "G12",
@@ -392,7 +407,7 @@
       "cost": 0,
       "max_bet": 0,
       "force_miss_next": 50,
-      "desc": ""
+      "desc": "상대의 다음 공격을 50% 확률로 강제로 빗맞춥니다."
     },
     {
       "id": "G13",
@@ -407,7 +422,7 @@
         "turns": 3,
         "ignore_shield": true
       },
-      "desc": ""
+      "desc": "상대를 3턴간 독 상태로 만듭니다 (매 턴 4 피해, 방어 무시)."
     },
     {
       "id": "G14",
@@ -419,7 +434,7 @@
       "cost": 0,
       "max_bet": 0,
       "guarantee_next_crit": true,
-      "desc": ""
+      "desc": "다음 사용 카드 1장의 치명타가 확정 발동합니다."
     },
     {
       "id": "G15",
@@ -430,12 +445,14 @@
       "signature": true,
       "cost": 0,
       "damage": 25,
-      "base_crit": 0,
-      "crit_mult": 3,
+      "base_acc": 50,
       "max_bet": 12,
-      "bet_crit": 5,
+      "bet_acc": 5,
+      "base_crit": 45,
+      "bet_crit": 0,
+      "crit_mult": 3,
       "self_damage_on_miss": "bet_amount",
-      "desc": ""
+      "desc": "베팅 1당 명중률이 +5%, 치명타 보너스가 +45%로 시작합니다. 치명타에 실패하면 베팅한 만큼 자해."
     }
   ],
   "warden": [
@@ -461,8 +478,8 @@
       "damage": 12,
       "max_bet": 10,
       "bet_damage": 1,
-      "punish_missed_prev": 8,
-      "desc": ""
+      "punish_hit_prev": 8,
+      "desc": "직전 턴 상대의 공격이 성공한 경우 공격력 +8."
     },
     {
       "id": "W3",
@@ -475,7 +492,7 @@
       "max_bet": 10,
       "bet_damage": 1,
       "silence_random": 1,
-      "desc": ""
+      "desc": "다음 턴 상대 손패 1장을 추가로 사용하지 못하게 합니다."
     },
     {
       "id": "W4",
@@ -488,7 +505,7 @@
       "max_bet": 10,
       "bet_damage": 1,
       "opponent_max_bet_next": 3,
-      "desc": ""
+      "desc": "상대의 다음 턴 베팅 상한값이 3으로 고정됩니다."
     },
     {
       "id": "W5",
@@ -500,8 +517,10 @@
       "damage": 14,
       "max_bet": 10,
       "bet_damage": 2,
-      "judgment_bonus": 8,
-      "desc": ""
+      "condition": {
+        "self_hp_below_opp": true
+      },
+      "desc": "내 남은 체력이 상대보다 적을 때만 사용할 수 있습니다."
     },
     {
       "id": "W6",
@@ -514,10 +533,9 @@
       "max_bet": 10,
       "bet_damage": 0,
       "patience": {
-        "div": 3,
-        "cap": 35
+        "ratio": 0.3
       },
-      "desc": ""
+      "desc": "내가 받은 누적 피해량의 30%를 적에게 돌려줍니다."
     },
     {
       "id": "W7",
@@ -530,20 +548,20 @@
       "max_bet": 10,
       "bet_damage": 1,
       "self_shield": 8,
-      "desc": ""
+      "desc": "방어막 8."
     },
     {
       "id": "W8",
       "name": "신성한 화살",
       "name_en": "Holy Arrow",
-      "type": "hit",
+      "type": "fixed",
       "category": "attack",
       "cost": 0,
-      "damage": 16,
-      "base_acc": 80,
+      "damage": 10,
       "max_bet": 10,
-      "bet_acc": 2,
-      "desc": ""
+      "bet_damage": 0,
+      "self_heal": 10,
+      "desc": "체력을 10 회복합니다."
     },
     {
       "id": "W9",
@@ -554,7 +572,7 @@
       "cost": 0,
       "max_bet": 0,
       "shield": 18,
-      "desc": ""
+      "desc": "방어막을 18 얻습니다."
     },
     {
       "id": "W10",
@@ -565,7 +583,7 @@
       "cost": 0,
       "max_bet": 0,
       "self_heal": 20,
-      "desc": ""
+      "desc": "체력을 20 회복합니다."
     },
     {
       "id": "W11",
@@ -577,7 +595,7 @@
       "max_bet": 0,
       "self_heal": 8,
       "cleanse": true,
-      "desc": ""
+      "desc": "체력을 8 회복하고 자신의 디버프(독, 침묵, 결박, 블러프, 피해 증폭)를 모두 제거합니다."
     },
     {
       "id": "W12",
@@ -587,9 +605,8 @@
       "category": "utility",
       "cost": 0,
       "max_bet": 0,
-      "opponent_deck_peek": 3,
-      "dodge_next": 30,
-      "desc": ""
+      "dodge_next": 50,
+      "desc": "다음에 받는 공격을 50% 확률로 회피합니다."
     },
     {
       "id": "W13",
@@ -600,7 +617,7 @@
       "cost": 0,
       "max_bet": 0,
       "draw": 2,
-      "desc": ""
+      "desc": "카드 2장을 뽑습니다."
     },
     {
       "id": "W14",
@@ -613,7 +630,7 @@
       "max_bet": 0,
       "negate_turns": 3,
       "negate_ratio": 0.5,
-      "desc": ""
+      "desc": "3턴간 자신이 받는 데미지가 절반이 됩니다."
     },
     {
       "id": "W15",
@@ -625,8 +642,9 @@
       "cost": 0,
       "damage": 0,
       "max_bet": 0,
-      "final_judgment": true,
-      "desc": "상대가 지금까지 베팅한 HP 총합만큼 확정 피해. 베팅 불가, 명중 확정."
+      "bet_damage": 0,
+      "final_judgment_self_only": true,
+      "desc": "이번 게임에서 자신이 베팅한 HP값만큼 적에게 피해를 줍니다. 모든 효과를 무시한 고정데미지."
     }
   ]
 }

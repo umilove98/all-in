@@ -37,6 +37,14 @@ export interface PlayerPublic {
   graveyardCount: number;
   /** 이번 턴 사용 가능한 카드 수 (기본 2 + 부운 보너스). 드롭존 개수 결정용. */
   maxCardsPerTurn: number;
+  /** 누적 베팅 HP — W15 최후의 심판 실시간 데미지 표시용. */
+  totalBet: number;
+  /** 누적 받은 피해 — W6 인내의 반격 실시간 데미지 표시용. */
+  totalDamageTaken: number;
+  /** 직전 턴에 공격을 빗나갔는지 — UI 표시용. */
+  missedLastTurn: boolean;
+  /** 직전 턴에 공격이 1회라도 적중했는지 — W2 처벌의 빛 실시간 데미지 표시용. */
+  hitLastTurn: boolean;
   /** 지속 상태 요약 — UI 표시용. chip 표기 + 명중률/피해량 프리뷰 계산에 사용. */
   statuses: {
     // 지속형 (턴 수 포함)
@@ -151,6 +159,7 @@ export interface CardPlayedMsg {
   cardId: string;
   cardName: string;
   bet: number;
+  /** 명중→데미지까지 성공한 경우 true. 회피/블러프/miss 모두 false. */
   success: boolean;
   critical: boolean;
   damageToOpponent: number;
@@ -159,10 +168,18 @@ export interface CardPlayedMsg {
   shieldGained: number;
   notes: string[];
   jackpotRoll: number | null;
-  /** hit 카드의 실제 판정에 쓰인 명중률(0~100). 버프/베팅/부운 전부 반영. 룰렛 표시용. */
+  /** hit/crit/fixed 카드의 실제 판정에 쓰인 명중률(0~100). 버프/베팅/부운 전부 반영. 룰렛 표시용. fixed=100. */
   accUsed?: number;
-  /** crit 카드의 실제 판정에 쓰인 치명률(0~100). 베팅/부운 반영. 룰렛 표시용. */
+  /** crit 카드의 실제 판정에 쓰인 치명률(0~100). UI 가 명중 룰렛에 gold 영역으로 함께 표기. */
   critChanceUsed?: number;
+  /** 시전자에게 걸려있던 블러프 확률 (>0 이면 블러프 룰렛 발동). */
+  bluffChance?: number;
+  /** 블러프 룰렛 결과 — true 면 강제 miss. */
+  bluffTriggered?: boolean;
+  /** 적에게 걸려있던 회피 확률 (>0 이면 회피 룰렛 발동). */
+  dodgeChance?: number;
+  /** 회피 룰렛 결과 — true 면 회피 성공(데미지 0). */
+  dodged?: boolean;
 }
 
 // ======================================================================

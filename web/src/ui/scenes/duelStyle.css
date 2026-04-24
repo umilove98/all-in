@@ -419,16 +419,19 @@ html, body {
 
 /* Action log */
 .actionLog {
-  width: 300px;
+  width: 320px;
   background: linear-gradient(180deg, rgba(20,10,8,0.9), rgba(10,5,4,0.9));
   border:1px solid var(--gold-dim);
   padding: 8px 12px 10px;
   box-shadow: inset 0 0 12px rgba(0,0,0,0.6);
-  max-height: 140px; overflow:hidden;
+  max-height: 180px;
+  display:flex; flex-direction:column;
 }
-.actionLogHeader { font-family:'Cinzel',serif; font-size:11px; color:var(--gold-1); letter-spacing:.22em; border-bottom:1px solid rgba(201,169,97,0.25); padding-bottom:5px; margin-bottom:6px; display:flex; gap:8px; align-items:center; }
+.actionLogHeader { font-family:'Cinzel',serif; font-size:11px; color:var(--gold-1); letter-spacing:.22em; border-bottom:1px solid rgba(201,169,97,0.25); padding-bottom:5px; margin-bottom:6px; display:flex; gap:8px; align-items:center; flex-shrink:0; }
 .actionLogIcon { color: var(--ember); }
-.actionLogBody { display:flex; flex-direction:column; gap:4px; }
+.actionLogBody { display:flex; flex-direction:column; gap:4px; overflow-y:auto; flex:1; }
+.actionLogBody::-webkit-scrollbar { width:4px; }
+.actionLogBody::-webkit-scrollbar-thumb { background: rgba(201,169,97,0.3); }
 .logEntry { font-size:12px; line-height:1.35; display:grid; grid-template-columns: 28px 1fr; gap:6px; }
 .logTurn { font-family:'JetBrains Mono',monospace; font-size:9px; color: var(--gold-1); padding-top:2px; }
 .logEntry-opp .logText  { color:#e8a8a8; }
@@ -544,25 +547,25 @@ html, body {
 .cardTypeGlyph { font-size:14px; }
 .cardTypeLabel {
   font-family:'JetBrains Mono',monospace; font-size:9px; font-weight:700;
-  letter-spacing:.14em; color: #3a1f08;
+  letter-spacing:.14em; color: #000;
 }
 .cardIdTag {
   margin-left:auto;
   font-family:'JetBrains Mono',monospace; font-size:9px;
-  color: rgba(58,40,18,0.55); letter-spacing:.08em;
+  color: rgba(0,0,0,0.65); letter-spacing:.08em;
 }
 
 .cardName {
   position:relative; z-index:2;
   font-family:'Cinzel','Noto Serif KR',serif; font-weight:700;
-  font-size:15px; color:#2a1a0a; text-align:center;
+  font-size:15px; color:#000; text-align:center;
   letter-spacing:.02em; line-height:1.1;
   text-shadow: 0 1px 0 rgba(255,240,200,0.4);
 }
 .cardNameEn {
   position:relative; z-index:2;
   font-family:'IM Fell English',serif; font-style:italic;
-  font-size:10px; color: rgba(58,40,18,0.6); text-align:center;
+  font-size:10px; color: rgba(0,0,0,0.7); text-align:center;
 }
 .cardSize-field .cardName { font-size:11px; }
 .cardSize-field .cardNameEn { display:none; }
@@ -597,29 +600,40 @@ html, body {
 .cardPrimaryRow { display:flex; align-items:baseline; gap:6px; }
 .cardStatLabel {
   font-family:'Cinzel','Noto Serif KR',serif; font-size:10px;
-  letter-spacing:.06em; color: rgba(58,40,18,0.8); font-weight:700;
+  letter-spacing:.06em; color: #000; font-weight:700;
   min-width: 44px;
 }
 .cardStatBig {
-  font-family:'Cinzel',serif; font-weight:700; font-size: 20px; color: #5a1a22;
+  font-family:'Cinzel',serif; font-weight:700; font-size: 20px; color: #000;
   text-shadow: 0 1px 0 rgba(255,240,200,0.4);
 }
 .cardStatMid {
-  font-family:'Cinzel',serif; font-weight:700; font-size: 14px; color: #6a2418;
+  font-family:'Cinzel',serif; font-weight:700; font-size: 14px; color: #000;
+}
+/* 일시 버프(베르세르크 / 분노 / 다음 명중·치명 보너스 / 치명 확정)으로 수치가
+   이번 회차 한정 상승한 상태를 시각화. 카드 고유 계산식(W15/W6/조건부)이나
+   부운 패시브는 해당 없음 — 디자인상 "이번 카드가 지금만 이 숫자다" 라는
+   주의 환기 용도. */
+.cardStatBuffed {
+  color: #c91f2c !important;
+  font-weight: 900 !important;
+  text-shadow:
+    0 1px 0 rgba(255,240,200,0.4),
+    0 0 6px rgba(201,31,44,0.35) !important;
 }
 .cardStatMult {
-  font-family:'Cinzel',serif; font-size: 12px; color: #8a5a10; font-weight:700;
+  font-family:'Cinzel',serif; font-size: 12px; color: #000; font-weight:700;
   margin-left: 4px;
 }
 .cardStatBet {
   margin-left: auto;
   font-family:'JetBrains Mono',monospace; font-size: 9px;
-  color: rgba(58,40,18,0.7); letter-spacing:.04em;
+  color: rgba(0,0,0,0.75); letter-spacing:.04em;
 }
 .cardPrimaryUtil { padding: 6px 4px; }
 .cardStatUtil {
   font-family:'Cinzel','Noto Serif KR',serif; font-weight:600;
-  font-size: 13px; color: #4a2a6a;
+  font-size: 13px; color: #000;
 }
 .cardSize-field .cardStatBig { font-size:14px; }
 .cardSize-field .cardStatMid { font-size:10px; }
@@ -630,7 +644,7 @@ html, body {
 .cardDesc {
   position:relative; z-index:2; flex:1;
   font-family:'IM Fell English','Noto Serif KR',serif;
-  font-size:11px; line-height:1.35; color:#2a1a08;
+  font-size:11px; line-height:1.35; color:#000;
   padding: 2px 2px; text-wrap: pretty;
 }
 .cardSize-field .cardDesc { font-size:8px; line-height:1.2; }
@@ -642,7 +656,7 @@ html, body {
 }
 .cardChip {
   font-family:'JetBrains Mono',monospace; font-size:8.5px;
-  letter-spacing:.04em; color: #3a1a08;
+  letter-spacing:.04em; color: #000;
   border: 1px solid rgba(58,40,18,0.45);
   background: rgba(58,40,18,0.08);
   padding: 1px 5px; border-radius: 1px;
@@ -664,12 +678,12 @@ html, body {
 .cardBetIcon { color: #b22233; font-size:14px; }
 .cardBetLabel {
   font-family:'Cinzel','Noto Serif KR',serif; font-size:10px;
-  color: #3a1a08; letter-spacing:.08em; font-weight:600;
+  color: #000; letter-spacing:.08em; font-weight:600;
 }
 .cardBetMax {
   margin-left: auto;
   font-family:'JetBrains Mono',monospace; font-size:10px;
-  color: #5a1a22; font-weight:700;
+  color: #000; font-weight:700;
 }
 .cardSize-field .cardBetBar { font-size: 8px; padding-top: 2px; }
 .cardSize-field .cardBetIcon { font-size: 10px; }
@@ -1306,34 +1320,34 @@ html, body {
 }
 .card[data-owner="gambler"] .cardCorner path { stroke: #3a5a96 !important; }
 .card[data-owner="gambler"] .cardTopBar { border-bottom-color: rgba(28,42,82,0.42); }
-.card[data-owner="gambler"] .cardTypeLabel { color: #1a2a55; }
-.card[data-owner="gambler"] .cardIdTag { color: rgba(28,42,82,0.6); }
+.card[data-owner="gambler"] .cardTypeLabel { color: #000; }
+.card[data-owner="gambler"] .cardIdTag { color: rgba(0,0,0,0.65); }
 .card[data-owner="gambler"] .cardName {
-  color: #0f1a30;
+  color: #000;
   text-shadow: 0 1px 0 rgba(240,245,255,0.5);
 }
-.card[data-owner="gambler"] .cardNameEn { color: rgba(28,42,82,0.65); }
+.card[data-owner="gambler"] .cardNameEn { color: rgba(0,0,0,0.7); }
 .card[data-owner="gambler"] .cardPrimary {
   background: rgba(28,42,82,0.09);
   border-top-color: rgba(28,42,82,0.32);
   border-bottom-color: rgba(28,42,82,0.32);
 }
-.card[data-owner="gambler"] .cardStatLabel { color: rgba(28,42,82,0.85); }
-.card[data-owner="gambler"] .cardStatBig  { color: #2a1a6a; text-shadow: 0 1px 0 rgba(240,245,255,0.5); }
-.card[data-owner="gambler"] .cardStatMid  { color: #24306a; }
-.card[data-owner="gambler"] .cardStatMult { color: #4a2a7a; }
-.card[data-owner="gambler"] .cardStatBet  { color: rgba(28,42,82,0.7); }
-.card[data-owner="gambler"] .cardStatUtil { color: #3a2a7a; }
-.card[data-owner="gambler"] .cardDesc     { color: #122038; }
+.card[data-owner="gambler"] .cardStatLabel { color: #000; }
+.card[data-owner="gambler"] .cardStatBig  { color: #000; text-shadow: 0 1px 0 rgba(240,245,255,0.5); }
+.card[data-owner="gambler"] .cardStatMid  { color: #000; }
+.card[data-owner="gambler"] .cardStatMult { color: #000; }
+.card[data-owner="gambler"] .cardStatBet  { color: rgba(0,0,0,0.75); }
+.card[data-owner="gambler"] .cardStatUtil { color: #000; }
+.card[data-owner="gambler"] .cardDesc     { color: #000; }
 .card[data-owner="gambler"] .cardChip {
-  color: #1a2a55;
+  color: #000;
   border-color: rgba(28,42,82,0.5);
   background: rgba(28,42,82,0.08);
 }
 .card[data-owner="gambler"] .cardBetBar { border-top-color: rgba(28,42,82,0.32); }
 .card[data-owner="gambler"] .cardBetIcon { color: #a63a52; }
-.card[data-owner="gambler"] .cardBetLabel { color: #1a2a55; }
-.card[data-owner="gambler"] .cardBetMax   { color: #2a1a6a; }
+.card[data-owner="gambler"] .cardBetLabel { color: #000; }
+.card[data-owner="gambler"] .cardBetMax   { color: #000; }
 /* Card back — indigo */
 .card[data-owner="gambler"].cardBack .cardBackPattern,
 .cardBack[data-owner="gambler"] .cardBackPattern {
@@ -1350,7 +1364,7 @@ html, body {
 }
 .card[data-owner="warden"] .cardInner {
   background: linear-gradient(170deg, #ecebe6 0%, #cccbc4 50%, #9a9992 100%);
-  color: #1a1a1c;
+  color: #000;
 }
 .card[data-owner="warden"] .cardInner::before { border-color: rgba(40,40,42,0.42); }
 .card[data-owner="warden"] .cardInner::after {
@@ -1360,34 +1374,34 @@ html, body {
 }
 .card[data-owner="warden"] .cardCorner path { stroke: #5a5c60 !important; }
 .card[data-owner="warden"] .cardTopBar { border-bottom-color: rgba(40,40,42,0.42); }
-.card[data-owner="warden"] .cardTypeLabel { color: #24252a; }
-.card[data-owner="warden"] .cardIdTag { color: rgba(40,40,42,0.6); }
+.card[data-owner="warden"] .cardTypeLabel { color: #000; }
+.card[data-owner="warden"] .cardIdTag { color: rgba(0,0,0,0.65); }
 .card[data-owner="warden"] .cardName {
-  color: #1a1a1c;
+  color: #000;
   text-shadow: 0 1px 0 rgba(245,245,240,0.5);
 }
-.card[data-owner="warden"] .cardNameEn { color: rgba(40,40,42,0.65); }
+.card[data-owner="warden"] .cardNameEn { color: rgba(0,0,0,0.7); }
 .card[data-owner="warden"] .cardPrimary {
   background: rgba(40,40,42,0.08);
   border-top-color: rgba(40,40,42,0.32);
   border-bottom-color: rgba(40,40,42,0.32);
 }
-.card[data-owner="warden"] .cardStatLabel { color: rgba(40,40,42,0.85); }
-.card[data-owner="warden"] .cardStatBig  { color: #4a1a22; text-shadow: 0 1px 0 rgba(245,245,240,0.5); }
-.card[data-owner="warden"] .cardStatMid  { color: #2a2a2c; }
-.card[data-owner="warden"] .cardStatMult { color: #6a4a10; }
-.card[data-owner="warden"] .cardStatBet  { color: rgba(40,40,42,0.7); }
-.card[data-owner="warden"] .cardStatUtil { color: #2a2a3a; }
-.card[data-owner="warden"] .cardDesc     { color: #1a1a1c; }
+.card[data-owner="warden"] .cardStatLabel { color: #000; }
+.card[data-owner="warden"] .cardStatBig  { color: #000; text-shadow: 0 1px 0 rgba(245,245,240,0.5); }
+.card[data-owner="warden"] .cardStatMid  { color: #000; }
+.card[data-owner="warden"] .cardStatMult { color: #000; }
+.card[data-owner="warden"] .cardStatBet  { color: rgba(0,0,0,0.75); }
+.card[data-owner="warden"] .cardStatUtil { color: #000; }
+.card[data-owner="warden"] .cardDesc     { color: #000; }
 .card[data-owner="warden"] .cardChip {
-  color: #24252a;
+  color: #000;
   border-color: rgba(40,40,42,0.5);
   background: rgba(40,40,42,0.08);
 }
 .card[data-owner="warden"] .cardBetBar { border-top-color: rgba(40,40,42,0.32); }
 .card[data-owner="warden"] .cardBetIcon { color: #a6262e; }
-.card[data-owner="warden"] .cardBetLabel { color: #24252a; }
-.card[data-owner="warden"] .cardBetMax   { color: #4a1a22; }
+.card[data-owner="warden"] .cardBetLabel { color: #000; }
+.card[data-owner="warden"] .cardBetMax   { color: #000; }
 /* Card back — steel */
 .card[data-owner="warden"].cardBack .cardBackPattern,
 .cardBack[data-owner="warden"] .cardBackPattern {
@@ -1548,6 +1562,11 @@ html, body {
 }
 .rmValue { color: var(--parchment); font-weight: 700; }
 .rmSuccess { color: #d45060; }
+/* 단계별 색 — buildStageConic 의 색 팔레트와 매칭 */
+.rm-hit { color: #6fdc8a; }
+.rm-bluff { color: #e85060; }
+.rm-dodge { color: #5cb1ff; }
+.rmCrit { color: #f0c850; }
 
 .rouletteReveal {
   margin-top: 10px;
@@ -1562,8 +1581,16 @@ html, body {
   animation: revealPop 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.3) both;
 }
 .revealWin {
-  color: #e85060;
-  text-shadow: 0 0 18px rgba(232,80,96,0.55), 0 1px 2px rgba(0,0,0,0.7);
+  color: #6fdc8a;
+  text-shadow: 0 0 18px rgba(111,220,138,0.55), 0 1px 2px rgba(0,0,0,0.7);
+}
+.revealCrit {
+  color: #f0c850;
+  text-shadow: 0 0 22px rgba(240,200,80,0.65), 0 1px 2px rgba(0,0,0,0.7);
+}
+.revealDodge {
+  color: #5cb1ff;
+  text-shadow: 0 0 18px rgba(92,177,255,0.6), 0 1px 2px rgba(0,0,0,0.7);
 }
 .revealLose {
   color: #9a959e;

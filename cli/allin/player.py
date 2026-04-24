@@ -93,8 +93,10 @@ class Player:
 
         # ---- 기록/추적 ----
         self.last_card: Optional[Card] = None
-        self.missed_last_turn: bool = False    # 가장 최근 턴 동안 miss 낸 적 있음 (W2 조건)
+        self.missed_last_turn: bool = False    # 가장 최근 턴 동안 miss 낸 적 있음
         self._missed_this_turn: bool = False
+        self.hit_last_turn: bool = False       # 가장 최근 턴 동안 적중시킨 적 있음 (W2 조건)
+        self._hit_this_turn: bool = False
         self.sig_used_ids: set[str] = set()
         self.sig_used_this_turn: bool = False
 
@@ -219,6 +221,7 @@ class Player:
 
         # 턴 내 추적자 리셋
         self._missed_this_turn = False
+        self._hit_this_turn = False
         self.sig_used_this_turn = False
 
         return info
@@ -228,8 +231,9 @@ class Player:
 
         참고: 실드(`shield`) 는 상대 턴에도 방어해야 하므로 begin_turn 에서 리셋.
         """
-        # 이번 턴 miss 냈는지 플래그를 '직전 턴 miss' 상태로 이월
+        # 이번 턴 miss/hit 냈는지 플래그를 '직전 턴' 상태로 이월
         self.missed_last_turn = self._missed_this_turn
+        self.hit_last_turn = self._hit_this_turn
 
         # 결박의 사슬 베팅 상한: 다음 턴 1회만 유효 → 한 턴 지나면 해제
         if self.bet_cap_override_turns > 0:
@@ -253,6 +257,7 @@ class Player:
 
     def record_hit(self, damage_dealt: int, critical: bool = False) -> None:
         self.total_damage_dealt += damage_dealt
+        self._hit_this_turn = True
         if critical:
             self.crit_count += 1
 

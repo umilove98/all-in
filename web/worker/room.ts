@@ -431,10 +431,13 @@ export class Room extends DurableObject<Env> {
     current.fillHand();
     this.cardsUsedThisTurn = 0;
 
-    // 컨트롤러(워든) 패시브
+    // 컨트롤러(워든) 패시브: 이미 침묵된 카드(W3 등)는 후보에서 제외 → 항상 새 카드 1장 추가 침묵
     if (opponent.className === "warden" && current.hand.length > 0) {
-      const silenced = this.game.rng.choice(current.hand);
-      if (!current.silencedCards.includes(silenced.id)) {
+      const candidates = current.hand.filter(
+        (c) => !current.silencedCards.includes(c.id),
+      );
+      if (candidates.length > 0) {
+        const silenced = this.game.rng.choice(candidates);
         current.silencedCards.push(silenced.id);
       }
     }
@@ -472,15 +475,17 @@ export class Room extends DurableObject<Env> {
 
     const opponent = this.game.opponentOf(slot.player);
 
-    // 룰렛 연출용 — executeCard 전 스냅샷
+    // 룰렛 연출용 — executeCard 전 스냅샷 (소모성 버프 반영된 실제 판정 수치)
     const clampedBet = Math.max(0, Math.min(bet, card.maxBet));
     const accUsed =
-      card.type === "hit"
+      card.type === "hit" || card.type === "crit"
         ? computeHitAccuracy(card, slot.player, opponent, clampedBet)
-        : undefined;
+        : card.type === "fixed"
+          ? 100
+          : undefined;
     const critChanceUsed =
       card.type === "crit"
-        ? computeCritChance(card, slot.player, clampedBet)
+        ? computeCritChance(card, slot.player, opponent, clampedBet)
         : undefined;
 
     let result;
@@ -515,6 +520,10 @@ export class Room extends DurableObject<Env> {
       jackpotRoll: result.jackpotRoll,
       accUsed,
       critChanceUsed,
+      bluffChance: result.bluffChance,
+      bluffTriggered: result.bluffTriggered,
+      dodgeChance: result.dodgeChance,
+      dodged: result.dodged,
     });
 
     this.sendHandsToAll();
@@ -694,6 +703,10 @@ export class Room extends DurableObject<Env> {
       deckCount: p?.deck.length ?? 0,
       graveyardCount: p?.graveyard.length ?? 0,
       maxCardsPerTurn: p?.maxCardsPerTurn() ?? 2,
+      totalBet: p?.totalBet ?? 0,
+      totalDamageTaken: p?.totalDamageTaken ?? 0,
+      missedLastTurn: p?.missedLastTurn ?? false,
+      hitLastTurn: p?.hitLastTurn ?? false,
       statuses: {
         poisonTurns: p?.poisonTurns ?? 0,
         poisonDamage: p?.poisonDamage ?? 0,

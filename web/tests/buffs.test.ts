@@ -83,13 +83,12 @@ describe("G11 미래 보기 — nextCritBonus", () => {
   it("다음 crit 카드 발동 시 치명률 +20% 적용", () => {
     const [p, op] = makePair("gambler", "berserker");
     p.nextCritBonus = 20;
-    // G1 카드 던지기: base_crit=30, crit_mult=2.5
-    // 0 베팅 → crit = 30 + 20 = 50
-    // fixedRandintRng(50) → 50 <= 50 crit 성공
+    // G1: base_acc 70 → 7 default crit + 20 bonus = 27.
+    // fixedRandintRng(20) → hit (20<=70), crit (20<=27).
     const r = executeCard(getCardById("G1"), p, op, {
       bet: 0,
       gameTurn: 1,
-      rng: fixedRandintRng(50),
+      rng: fixedRandintRng(20),
     });
     expect(r.critical).toBe(true);
   });
@@ -120,11 +119,11 @@ describe("G14 마크된 운명 — guaranteeNextCrit [SIG]", () => {
   it("다음 crit 카드는 무조건 치명타 (기본 crit 0 이어도)", () => {
     const [p, op] = makePair("gambler", "berserker");
     p.guaranteeNextCrit = true;
-    // G15 올인: base_crit=0 → 일반 판정이면 절대 crit 안 남. guaranteed 플래그로 강제.
-    const r = executeCard(getCardById("G15"), p, op, {
+    // G1: base_acc 70. always_min: hit pass (1<=70), crit forced. dmg 25*2 = 50.
+    const r = executeCard(getCardById("G1"), p, op, {
       bet: 0,
       gameTurn: 5,
-      rng: alwaysMaxRng(), // 최악의 굴림이어도 guaranteeNextCrit 이 이김
+      rng: alwaysMinRng(),
     });
     expect(r.critical).toBe(true);
     expect(p.guaranteeNextCrit).toBe(false);
@@ -225,15 +224,14 @@ describe("B11 분노 폭발 — rageStacks", () => {
     const [p, op] = makePair();
     p.rageStacks = 3;
     const opHpBefore = op.hp;
-    // B1 분쇄 일격 damage=18, baseAcc=40 → 베팅 10 명중률 100 확보
+    // B1 dmg 50 + rage 3*8 = 74
     const r = executeCard(getCardById("B1"), p, op, {
       bet: 10,
       gameTurn: 1,
       rng: alwaysMinRng(),
     });
     expect(r.success).toBe(true);
-    // damage = 18 + rageStacks*8 = 18 + 24 = 42
-    expect(opHpBefore - op.hp).toBe(42);
+    expect(opHpBefore - op.hp).toBe(74);
     expect(p.rageStacks).toBe(0);
   });
 });
@@ -335,8 +333,8 @@ describe("B15 베르세르크 [SIG] — 다중 상태 세팅", () => {
       rng: alwaysMinRng(),
     });
     expect(r.success).toBe(true);
-    // base 18 + berserkDamageBonus 8 = 26
-    expect(opHpBefore - op.hp).toBe(26);
+    // base 50 + berserkDamageBonus 8 = 58
+    expect(opHpBefore - op.hp).toBe(58);
   });
 });
 
@@ -362,8 +360,8 @@ describe("W14 무효 선언 [SIG] — incomingDamageMult", () => {
       gameTurn: 3,
       rng: alwaysMinRng(),
     });
-    // base 18 * 0.5 = 9
-    expect(hpBefore - defender.hp).toBe(9);
+    // base 50 * 0.5 = 25
+    expect(hpBefore - defender.hp).toBe(25);
   });
 
   it("3턴 뒤 자동 해제", () => {
@@ -410,9 +408,9 @@ describe("shield — B7 / B9 / W9", () => {
       gameTurn: 1,
       rng: alwaysMinRng(),
     });
-    // damage 18 → shield 15 흡수 → hp -3
+    // damage 50 → shield 15 흡수 → hp -35
     expect(defender.shield).toBe(0);
-    expect(hpBefore - defender.hp).toBe(3);
+    expect(hpBefore - defender.hp).toBe(35);
   });
 
   it("ignore_shield (G3 마크된 단검) 은 shield 무시", () => {
@@ -515,8 +513,8 @@ describe("B4 연쇄 베기 — 3회 타격", () => {
       rng: alwaysMinRng(),
     });
     expect(r.success).toBe(true);
-    // damage 10 × 3회 = 30 (각 타격 독립 판정이라 alwaysMin 으로 전부 성공)
-    expect(opHpBefore - op.hp).toBe(30);
+    // damage 18 × 3회 = 54
+    expect(opHpBefore - op.hp).toBe(54);
   });
 });
 
@@ -524,46 +522,44 @@ describe("B5 처형 — 상대 HP ≤ 30 시 명중 +20%", () => {
   it("상대 HP > threshold 면 보너스 없음", () => {
     const [p, op] = makePair();
     op.hp = 50;
-    // B1 분쇄일격 아님, B5 처형. baseAcc=30, threshold=30, bonus=20
-    // HP 50 > 30 → bonus 무시. base 30 + berserker 2*0 = 30
+    // B5 base_acc 60. fixedRandintRng(61) → 61>60 miss.
     const r = executeCard(getCardById("B5"), p, op, {
       bet: 0,
       gameTurn: 1,
-      rng: fixedRandintRng(31), // 31 > 30 miss
+      rng: fixedRandintRng(61),
     });
     expect(r.success).toBe(false);
   });
 
-  it("상대 HP ≤ threshold 면 +20% 보너스", () => {
+  it("상대 HP ≤ threshold 면 +25% 보너스", () => {
     const [p, op] = makePair();
     op.hp = 25;
-    // base 30 + bonus 20 = 50 → fixedRandintRng(50) 로 hit
+    // base 60 + bonus 25 = 85 → fixedRandintRng(85) hit.
     const r = executeCard(getCardById("B5"), p, op, {
       bet: 0,
       gameTurn: 1,
-      rng: fixedRandintRng(50),
+      rng: fixedRandintRng(85),
     });
     expect(r.success).toBe(true);
   });
 });
 
-describe("W2 처벌의 빛 — missedLastTurn 보너스", () => {
-  it("상대가 직전 턴 miss 했으면 피해 +8", () => {
+describe("W2 처벌의 빛 — hitLastTurn 보너스", () => {
+  it("상대가 직전 턴 적중했으면 피해 +8", () => {
     const [p, op] = makePair("warden", "berserker");
-    op.missedLastTurn = true;
+    op.hitLastTurn = true;
     const hpBefore = op.hp;
     executeCard(getCardById("W2"), p, op, {
       bet: 0,
       gameTurn: 1,
       rng: alwaysMinRng(),
     });
-    // W2 base damage 12 + 8(punish) = 20
-    expect(hpBefore - op.hp).toBe(20);
+    expect(hpBefore - op.hp).toBe(20);  // 12 + 8
   });
 
-  it("상대가 miss 안 했으면 기본 피해만", () => {
+  it("상대가 적중 안 했으면 기본 피해만", () => {
     const [p, op] = makePair("warden", "berserker");
-    op.missedLastTurn = false;
+    op.hitLastTurn = false;
     const hpBefore = op.hp;
     executeCard(getCardById("W2"), p, op, {
       bet: 0,
@@ -574,8 +570,8 @@ describe("W2 처벌의 빛 — missedLastTurn 보너스", () => {
   });
 });
 
-describe("W5 정의 집행 — judgment_bonus", () => {
-  it("상대 HP > 내 HP 시 피해 +8", () => {
+describe("W5 정의 집행 — condition self_hp_below_opp", () => {
+  it("내 HP < 상대 HP 시 사용 가능 (보너스 없음)", () => {
     const [p, op] = makePair("warden", "berserker");
     p.hp = 50;
     op.hp = 80;
@@ -585,21 +581,20 @@ describe("W5 정의 집행 — judgment_bonus", () => {
       gameTurn: 1,
       rng: alwaysMinRng(),
     });
-    // base 14 + 8 = 22
-    expect(opHpBefore - op.hp).toBe(22);
+    expect(opHpBefore - op.hp).toBe(14);
   });
 
-  it("내 HP ≥ 상대 HP 면 보너스 없음", () => {
+  it("내 HP ≥ 상대 HP 면 사용 불가", () => {
     const [p, op] = makePair("warden", "berserker");
     p.hp = 80;
     op.hp = 50;
-    const opHpBefore = op.hp;
-    executeCard(getCardById("W5"), p, op, {
-      bet: 0,
-      gameTurn: 1,
-      rng: alwaysMinRng(),
-    });
-    expect(opHpBefore - op.hp).toBe(14);
+    expect(() =>
+      executeCard(getCardById("W5"), p, op, {
+        bet: 0,
+        gameTurn: 1,
+        rng: alwaysMinRng(),
+      }),
+    ).toThrow();
   });
 });
 
@@ -618,16 +613,16 @@ describe("B8 광기의 일격 — self_damage", () => {
 });
 
 describe("B2 광폭한 돌진 — self_damage_on_miss", () => {
-  it("빗나갔을 때만 자해 5", () => {
+  it("빗나갔을 때만 자해 8", () => {
     const [p, op] = makePair();
     const pHpBefore = p.hp;
-    // B2 baseAcc=30 → alwaysMaxRng 로 100<=30 실패
+    // B2 baseAcc 70 → alwaysMaxRng 로 100>70 실패
     executeCard(getCardById("B2"), p, op, {
       bet: 0,
       gameTurn: 1,
       rng: alwaysMaxRng(),
     });
-    expect(p.hp).toBe(pHpBefore - 5);
+    expect(p.hp).toBe(pHpBefore - 8);
   });
 
   it("hit 성공 시 자해 없음", () => {
@@ -638,7 +633,7 @@ describe("B2 광폭한 돌진 — self_damage_on_miss", () => {
       gameTurn: 1,
       rng: alwaysMinRng(),
     });
-    expect(p.hp).toBe(pHpBefore - 10); // 베팅 10만 차감
+    expect(p.hp).toBe(pHpBefore - 10);
   });
 });
 
@@ -777,8 +772,8 @@ describe("BN02 견고한 의지 — damage_reduction", () => {
       gameTurn: 1,
       rng: alwaysMinRng(),
     });
-    // damage 18 - 2 (reduction) = 16
-    expect(hpBefore - defender.hp).toBe(16);
+    // damage 50 - 2 (reduction) = 48
+    expect(hpBefore - defender.hp).toBe(48);
   });
 });
 
@@ -804,8 +799,8 @@ describe("BN04 칼날의 축복 — damage_bonus_all +3", () => {
       gameTurn: 1,
       rng: alwaysMinRng(),
     });
-    // 18 + 3 = 21
-    expect(hpBefore - op.hp).toBe(21);
+    // 50 + 3 = 53
+    expect(hpBefore - op.hp).toBe(53);
   });
 });
 
@@ -814,21 +809,20 @@ describe("BN05 정밀의 눈 — acc_bonus +15 / crit_bonus +10", () => {
     const boon = getBoonById("BN05");
     const p = new Player({ name: "A", className: "berserker", boon, seed: 1 });
     const op = new Player({ name: "B", className: "warden", seed: 2 });
-    // B1 baseAcc=40, 0 베팅 → 40 + 15(BN05) = 55. berserker 패시브 0 (베팅 0)
-    // fixedRandintRng(55) → 55<=55 hit
+    // B1 baseAcc 80 + 15 (BN05) = 95. fixedRandintRng(95) → hit.
     const r = executeCard(getCardById("B1"), p, op, {
       bet: 0,
       gameTurn: 1,
-      rng: fixedRandintRng(55),
+      rng: fixedRandintRng(95),
     });
     expect(r.success).toBe(true);
-    // 56 이면 miss
-    const [p2, op2] = makePair();
-    (p2 as unknown as { boon: typeof boon }).boon = boon;
+    // 96 이면 miss (no boon: 80, with boon: 95)
+    const p2 = new Player({ name: "C", className: "berserker", seed: 1 });
+    const op2 = new Player({ name: "D", className: "warden", seed: 2 });
     const r2 = executeCard(getCardById("B1"), p2, op2, {
       bet: 0,
       gameTurn: 1,
-      rng: fixedRandintRng(56),
+      rng: fixedRandintRng(96),
     });
     expect(r2.success).toBe(false);
   });
@@ -837,11 +831,12 @@ describe("BN05 정밀의 눈 — acc_bonus +15 / crit_bonus +10", () => {
     const boon = getBoonById("BN05");
     const p = new Player({ name: "A", className: "gambler", boon, seed: 1 });
     const op = new Player({ name: "B", className: "berserker", seed: 2 });
-    // G1 base_crit=30 + 10 = 40. fixedRandintRng(40) → crit
+    // G1: acc 70+15 = 85. crit = 85/10 + 10 (boon) = 18.
+    // fixedRandintRng(18) → hit (18<=85), crit (18<=18).
     const r = executeCard(getCardById("G1"), p, op, {
       bet: 0,
       gameTurn: 1,
-      rng: fixedRandintRng(40),
+      rng: fixedRandintRng(18),
     });
     expect(r.critical).toBe(true);
   });
@@ -899,78 +894,74 @@ function sequenceRng(values: number[]): import("@/engine").Rng {
   };
 }
 
-describe("rollHitWithModifiers 순서 — hit → bluff → dodge", () => {
-  it("bluff 걸렸고 hit 성공 시 bluff 굴림 발생 + 소멸", () => {
+describe("새 데미지 흐름 — bluff → hit → dodge 별도 굴림", () => {
+  it("bluff 걸렸고 발동 시 hit 굴림 안 함 (bluff 먼저)", () => {
     const [attacker, defender] = makePair();
     attacker.nextAttackMissChance = 50;
-    // 시퀀스: [hit 롤=1, bluff 롤=1] — 둘 다 성공/발동
-    // B1 bet=10 → acc ≈ 100, hit 성공, 그 다음 bluff 1<=50 → 강제 miss
+    // 시퀀스: [bluff=1] (1<=50 발동 → 즉시 강제 miss). hit/dodge 굴림 X.
+    const r = executeCard(getCardById("B1"), attacker, defender, {
+      bet: 10,
+      gameTurn: 1,
+      rng: sequenceRng([1]),
+    });
+    expect(r.success).toBe(false);
+    expect(r.bluffTriggered).toBe(true);
+    expect(attacker.nextAttackMissChance).toBe(0);
+  });
+
+  it("bluff 발동 실패 → hit 정상 굴림 + bluff 소멸", () => {
+    const [attacker, defender] = makePair();
+    attacker.nextAttackMissChance = 50;
+    // [bluff=51 실패, hit=1 성공]
+    const r = executeCard(getCardById("B1"), attacker, defender, {
+      bet: 10,
+      gameTurn: 1,
+      rng: sequenceRng([51, 1]),
+    });
+    expect(r.success).toBe(true);
+    expect(r.bluffTriggered).toBe(false);
+    expect(attacker.nextAttackMissChance).toBe(0);
+  });
+
+  it("dodge 걸린 상대에 공격 시 hit 후 dodge 별도 굴림", () => {
+    const [attacker, defender] = makePair();
+    defender.dodgeNextPercent = 50;
+    // [hit=1 성공, dodge=1 성공] → 회피
     const r = executeCard(getCardById("B1"), attacker, defender, {
       bet: 10,
       gameTurn: 1,
       rng: sequenceRng([1, 1]),
     });
     expect(r.success).toBe(false);
-    expect(attacker.nextAttackMissChance).toBe(0);
-  });
-
-  it("bluff 굴림 실패 → hit 유지 + bluff 는 소멸", () => {
-    const [attacker, defender] = makePair();
-    attacker.nextAttackMissChance = 50;
-    // hit=1 성공, bluff=51 → 51>50 → 강제 miss 실패, hit 유지
-    const r = executeCard(getCardById("B1"), attacker, defender, {
-      bet: 10,
-      gameTurn: 1,
-      rng: sequenceRng([1, 51]),
-    });
-    expect(r.success).toBe(true);
-    expect(attacker.nextAttackMissChance).toBe(0);
-  });
-
-  it("dodge 걸린 상대에 공격 시 dodge 굴림 발생 + 소멸", () => {
-    const [attacker, defender] = makePair();
-    defender.dodgeNextPercent = 50;
-    // hit=1 성공, dodge=1<=50 → 회피 성공 → miss 처리
-    const r = executeCard(getCardById("B1"), attacker, defender, {
-      bet: 10,
-      gameTurn: 1,
-      rng: sequenceRng([1, 1]),
-    });
-    expect(r.success).toBe(false);
+    expect(r.dodged).toBe(true);
     expect(defender.dodgeNextPercent).toBe(0);
   });
 
-  it("bluff + dodge 동시 걸려있으면 순서대로 소모 (bluff 먼저)", () => {
+  it("bluff + dodge 동시: bluff 실패 → hit → dodge 실패 → 명중 성공", () => {
     const [attacker, defender] = makePair();
     attacker.nextAttackMissChance = 50;
     defender.dodgeNextPercent = 50;
-    // hit=1, bluff=51(실패), dodge=51(실패) → 최종 hit
+    // [bluff=51 실패, hit=1 성공, dodge=51 실패]
     const r = executeCard(getCardById("B1"), attacker, defender, {
       bet: 10,
       gameTurn: 1,
-      rng: sequenceRng([1, 51, 51]),
+      rng: sequenceRng([51, 1, 51]),
     });
     expect(r.success).toBe(true);
-    // 둘 다 소모돼야 함
     expect(attacker.nextAttackMissChance).toBe(0);
     expect(defender.dodgeNextPercent).toBe(0);
   });
 
-  it("원 hit 이 실패하면 bluff/dodge 굴림 안 함 → 상태 유지", () => {
+  it("원 hit 이 실패하면 dodge 굴림 안 함 → dodge 유지", () => {
     const [attacker, defender] = makePair();
-    attacker.nextAttackMissChance = 50;
     defender.dodgeNextPercent = 50;
-    // hit=100 → 100<=100 성공이지만 base acc=40+60=100 → 성공
-    // 대신 B1 baseAcc=40 0베팅 → hit=100 실패
-    // 경계: bet=0, acc=40, hit=100 → 100<=40 fail
+    // [hit=100 실패] — B1 acc 80 (no bet), 100>80 miss. dodge 굴림 X.
     const r = executeCard(getCardById("B1"), attacker, defender, {
       bet: 0,
       gameTurn: 1,
-      rng: sequenceRng([100, 1, 1]), // hit fail → 나머지 굴림 안 됨
+      rng: sequenceRng([100, 1]),
     });
     expect(r.success).toBe(false);
-    // hit 자체가 실패했으므로 bluff/dodge 는 소모 안 됨
-    expect(attacker.nextAttackMissChance).toBe(50);
     expect(defender.dodgeNextPercent).toBe(50);
   });
 });

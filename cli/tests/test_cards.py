@@ -64,49 +64,48 @@ def test_all_card_ids_unique():
 
 
 def test_b1_crushing_blow_spec():
-    # 분쇄 일격: hit, 18뎀, base 40%, bet +6%, 풀베팅 10 → 100%
+    # 분쇄 일격: hit, 50뎀, base 80%, bet +1%
     c = get_card_by_id("B1")
     assert c.name == "분쇄 일격"
     assert c.type == "hit"
-    assert c.damage == 18
-    assert c.base_acc == 40
-    assert c.bet_acc == 6
+    assert c.damage == 50
+    assert c.base_acc == 80
+    assert c.bet_acc == 1
     assert c.max_bet == 10
     assert c.signature is False
 
 
 def test_b4_chain_slash_hit_count():
-    # 연쇄 베기: 10뎀 × 3회 명중 판정
+    # 연쇄 베기: 18뎀 × 3회 명중 판정
     c = get_card_by_id("B4")
-    assert c.damage == 10
+    assert c.damage == 18
     assert c.extra["hit_count"] == 3
 
 
 def test_b13_last_stand_condition():
-    # 최후의 발악: 내 HP 30 이하 조건
     c = get_card_by_id("B13")
     assert c.extra["condition"] == {"self_hp_max": 30}
 
 
 def test_b14_blood_madness_signature():
-    # 피의 광기 시그니처: max_bet 15, base 0%, bet +6%
+    # 피의 광기 시그니처: max_bet 15, base 30%, bet +4%
     c = get_card_by_id("B14")
     assert c.signature is True
     assert c.category == "signature"
     assert c.max_bet == 15
-    assert c.base_acc == 0
-    assert c.bet_acc == 6
-    assert c.damage == 50
+    assert c.base_acc == 30
+    assert c.bet_acc == 4
+    assert c.damage == 60
 
 
 def test_g6_allin_bet_crit():
-    # 올인 베팅: crit, 20뎀, base_crit 20, crit_mult 3.5, bet_crit +6
+    # 올인 베팅: crit, 20뎀, base_acc 50, crit_mult 2, bet_crit +3 (per-bet 추가 보너스)
     c = get_card_by_id("G6")
     assert c.type == "crit"
     assert c.damage == 20
-    assert c.base_crit == 20
-    assert c.crit_mult == 3.5
-    assert c.bet_crit == 6
+    assert c.base_acc == 50
+    assert c.bet_crit == 3
+    assert c.crit_mult == 2
 
 
 def test_g4_jackpot_extra():
@@ -135,16 +134,17 @@ def test_w1_justice_strike_fixed():
     assert c.max_bet == 10
 
 
-def test_w5_judgment_bet_damage_2():
+def test_w5_judgment_condition_below_opp():
+    # W5 정의 집행: 강화 2, condition self_hp_below_opp
     c = get_card_by_id("W5")
     assert c.bet_damage == 2
-    assert c.extra["judgment_bonus"] == 8
+    assert c.extra["condition"] == {"self_hp_below_opp": True}
 
 
 def test_w15_final_judgment_flag():
     c = get_card_by_id("W15")
     assert c.signature is True
-    assert c.extra.get("final_judgment") is True
+    assert c.extra.get("final_judgment_self_only") is True
 
 
 # ---- 구조 검증 ---------------------------------------------------------------------

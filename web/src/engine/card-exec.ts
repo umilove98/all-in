@@ -16,7 +16,8 @@ export interface CardResult {
   cardId: string;
   caster: string;
   bet: number;
-  success: boolean; // hit/crit/fixed: 명중 성공, utility: 시전 성공
+  /** 명중→데미지까지 성공한 경우 true. 회피/블러프/miss 모두 false. */
+  success: boolean;
   critical: boolean;
   damageToOpponent: number;
   damageToSelf: number;
@@ -27,6 +28,11 @@ export interface CardResult {
   subResults: Array<Record<string, unknown>>;
   doubleProc: boolean;
   jackpotRoll: number | null;
+  /** ----- 새 룰렛 연출용 ----- */
+  bluffChance: number;      // 시전자에게 걸려있던 블러프 확률 (0이면 미발동)
+  bluffTriggered: boolean;  // 블러프가 실제 발동해 강제 miss 됐는지
+  dodgeChance: number;      // 적에게 걸려있던 회피 확률 (0이면 미발동)
+  dodged: boolean;          // 회피 성공 여부
 }
 
 function newResult(cardId: string, caster: string, bet: number): CardResult {
@@ -45,6 +51,10 @@ function newResult(cardId: string, caster: string, bet: number): CardResult {
     subResults: [],
     doubleProc: false,
     jackpotRoll: null,
+    bluffChance: 0,
+    bluffTriggered: false,
+    dodgeChance: 0,
+    dodged: false,
   };
 }
 
@@ -73,6 +83,7 @@ export function validateCardPlay(
   card: Card,
   caster: Player,
   gameTurn: number,
+  opponent?: Player | null,
 ): void {
   if (card.signature) {
     if (caster.sigUsedIds.has(card.id)) {
@@ -91,12 +102,26 @@ export function validateCardPlay(
     throw new InvalidPlayError(`${card.id}: 침묵 상태`);
   }
   const cond = card.extra.condition as
-    | { self_hp_max?: number }
+    | { self_hp_max?: number; self_hp_below_opp?: boolean }
     | undefined;
   if (cond?.self_hp_max !== undefined && caster.hp > cond.self_hp_max) {
     throw new InvalidPlayError(
       `${card.id}: 내 HP가 ${cond.self_hp_max} 이하여야 함 (현재 ${caster.hp})`,
     );
+  }
+  // W5 정의 집행: 내 HP < 상대 HP
+  if (cond?.self_hp_below_opp) {
+    if (!opponent) {
+      throw new InvalidPlayError(
+        `${card.id}: 상대 정보 없이 검증 불가`,
+      );
+    }
+    if (caster.hp >= opponent.hp) {
+      throw new InvalidPlayError(
+        `${card.id}: 내 HP가 상대보다 낮아야 함 ` +
+          `(내 ${caster.hp} / 상대 ${opponent.hp})`,
+      );
+    }
   }
 }
 
@@ -150,8 +175,19 @@ export function computeHitAccuracy(
   return Math.max(0, Math.min(100, acc));
 }
 
-export function computeCritChance(card: Card, caster: Player, bet: number): number {
-  let crit = card.baseCrit + card.betCrit * bet;
+/**
+ * 치명타 확률 = floor(현재 명중률 / 10) + 카드 보너스 + 부운 + 다음-1회 버프.
+ * 명중률 변화에 따라 자동 상승.
+ */
+export function computeCritChance(
+  card: Card,
+  caster: Player,
+  opponent: Player,
+  bet: number,
+): number {
+  const acc = computeHitAccuracy(card, caster, opponent, bet);
+  let crit = Math.floor(acc / 10);
+  crit += card.baseCrit + card.betCrit * bet;
   crit += boonEffectNum(caster, "crit_bonus");
   crit += boonEffectNum(caster, "bet_crit_bonus_per") * bet;
   crit += caster.nextCritBonus;
@@ -209,13 +245,10 @@ function computeBaseAttackDamage(
   dmg += boonEffectNum(caster, "damage_bonus_all");
   dmg += caster.berserkDamageBonus;
 
-  const punish = (card.extra.punish_missed_prev as number | undefined) ?? 0;
-  if (punish && opponent.missedLastTurn) {
-    dmg += punish;
-  }
-  const judgmentBonus = (card.extra.judgment_bonus as number | undefined) ?? 0;
-  if (judgmentBonus && opponent.hp > caster.hp) {
-    dmg += judgmentBonus;
+  // W2 처벌의 빛: 상대 직전 턴 적중 시 +
+  const punishHit = (card.extra.punish_hit_prev as number | undefined) ?? 0;
+  if (punishHit && opponent.hitLastTurn) {
+    dmg += punishHit;
   }
   return dmg;
 }
@@ -232,35 +265,83 @@ function rollDoubleProc(caster: Player, rng: Rng, result: CardResult): void {
 //   Hit
 // ======================================================================
 
-function rollHitWithModifiers(
-  acc: number,
+/**
+ * 블러프(G12 force_miss_next) 소모 + 발동 판정. true 반환 시 강제 miss.
+ * 명중 판정과 별도로 시전 시 1회 굴림. UI 룰렛은 별도 표기.
+ */
+function tryConsumeBluff(
   caster: Player,
+  rng: Rng,
+  result: CardResult,
+): boolean {
+  if (caster.nextAttackMissChance <= 0) return false;
+  const chance = caster.nextAttackMissChance;
+  caster.nextAttackMissChance = 0;
+  result.bluffChance = chance;
+  if (rng.randint(1, 100) <= chance) {
+    result.bluffTriggered = true;
+    result.notes.push(`블러프 발동 — ${chance}% 강제 miss`);
+    return true;
+  }
+  return false;
+}
+
+/** 회피(G9/W12 dodge_next) 소모 + 발동 판정. true = 회피 성공(데미지 0). */
+function tryConsumeDodge(
   opponent: Player,
   rng: Rng,
   result: CardResult,
 ): boolean {
-  let hit = rng.randint(1, 100) <= acc;
+  if (opponent.dodgeNextPercent <= 0) return false;
+  const chance = opponent.dodgeNextPercent;
+  opponent.dodgeNextPercent = 0;
+  result.dodgeChance = chance;
+  if (rng.randint(1, 100) <= chance) {
+    result.dodged = true;
+    result.notes.push(`${opponent.name} 회피 성공 (${chance}%)`);
+    return true;
+  }
+  return false;
+}
 
-  // G12 블러프 — 공격자의 next_attack_miss_chance 소모
-  if (hit && caster.nextAttackMissChance > 0) {
-    const chance = caster.nextAttackMissChance;
-    caster.nextAttackMissChance = 0;
-    if (rng.randint(1, 100) <= chance) {
-      hit = false;
-      result.notes.push(`블러프에 걸림 — ${chance}% 강제 miss`);
+/** 공격 카드 공통 후처리: 흡혈/자해/빗맞 자해/드로우/자기 회복(W8). */
+function postAttackEffects(
+  card: Card,
+  caster: Player,
+  bet: number,
+  result: CardResult,
+  successfulHits: number,
+  totalDamage: number,
+): void {
+  const lifesteal = (card.extra.lifesteal as number | undefined) ?? 0;
+  if (lifesteal && successfulHits > 0) {
+    const healed = caster.heal(Math.floor(totalDamage * lifesteal));
+    result.heal += healed;
+  }
+
+  const selfDmg = (card.extra.self_damage as number | undefined) ?? 0;
+  if (selfDmg) applySelfDamage(caster, selfDmg, result);
+
+  const missSelf = card.extra.self_damage_on_miss as number | string | undefined;
+  if (missSelf && !result.success) {
+    if (missSelf === "bet_amount") {
+      applySelfDamage(caster, bet, result);
+    } else if (typeof missSelf === "number") {
+      applySelfDamage(caster, missSelf, result);
     }
   }
 
-  // G9/W12 회피 — 방어자의 dodge_next_percent 소모
-  if (hit && opponent.dodgeNextPercent > 0) {
-    const chance = opponent.dodgeNextPercent;
-    opponent.dodgeNextPercent = 0;
-    if (rng.randint(1, 100) <= chance) {
-      hit = false;
-      result.notes.push(`${opponent.name} 회피 (${chance}%)`);
-    }
+  const drawN = (card.extra.draw as number | undefined) ?? 0;
+  if (drawN) {
+    const drawn = caster.draw(drawN);
+    result.drawnCards.push(...drawn.map((c) => c.id));
   }
-  return hit;
+
+  // W8 신성한 화살 (fixed 카드 자기 회복)
+  const selfHeal = (card.extra.self_heal as number | undefined) ?? 0;
+  if (selfHeal && card.category === "attack") {
+    result.heal += caster.heal(selfHeal);
+  }
 }
 
 function executeHit(
@@ -272,33 +353,58 @@ function executeHit(
   rng: Rng,
 ): void {
   const acc = computeHitAccuracy(card, caster, opponent, bet);
-  caster.nextAccBonus = 0; // 사용 시 소모
+  caster.nextAccBonus = 0;
+
+  const bluffed = tryConsumeBluff(caster, rng, result);
 
   let baseDamage = computeBaseAttackDamage(card, caster, opponent);
   baseDamage += card.betDamage * bet;
   baseDamage += consumeRage(caster);
 
   const hitCount = (card.extra.hit_count as number | undefined) ?? 1;
-
   let totalDamage = 0;
   let successfulHits = 0;
+  let dodgeConsumed = false;
+
   for (let i = 0; i < hitCount; i++) {
-    const hit = rollHitWithModifiers(acc, caster, opponent, rng, result);
-    if (hit) {
-      successfulHits += 1;
-      let dmg = baseDamage;
-      if (result.doubleProc) dmg *= 2;
-      const dealt = applyDamageToOpponent(dmg, card, caster, opponent, result);
-      totalDamage += dealt;
+    if (bluffed) {
+      caster.recordMiss();
       result.subResults.push({
         hit_index: i + 1,
-        hit: true,
-        damage: dealt,
+        hit: false,
+        bluffed: true,
+        damage: 0,
       });
-    } else {
+      continue;
+    }
+
+    const hit = rng.randint(1, 100) <= acc;
+    if (!hit) {
       caster.recordMiss();
       result.subResults.push({ hit_index: i + 1, hit: false, damage: 0 });
+      continue;
     }
+
+    let dmg = baseDamage * (result.doubleProc ? 2 : 1);
+
+    // 회피 — 카드당 1회만 굴림
+    if (!dodgeConsumed) {
+      dodgeConsumed = true;
+      if (tryConsumeDodge(opponent, rng, result)) {
+        result.subResults.push({
+          hit_index: i + 1,
+          hit: true,
+          dodged: true,
+          damage: 0,
+        });
+        continue;
+      }
+    }
+
+    const dealt = applyDamageToOpponent(dmg, card, caster, opponent, result);
+    totalDamage += dealt;
+    successfulHits += 1;
+    result.subResults.push({ hit_index: i + 1, hit: true, damage: dealt });
   }
 
   result.success = successfulHits > 0;
@@ -307,33 +413,7 @@ function executeHit(
     caster.recordHit(totalDamage, false);
   }
 
-  // 흡혈 (B3)
-  const lifesteal = (card.extra.lifesteal as number | undefined) ?? 0;
-  if (lifesteal && successfulHits > 0) {
-    const healed = caster.heal(Math.floor(totalDamage * lifesteal));
-    result.heal += healed;
-  }
-
-  // 사용 시 자해 (B8)
-  const selfDmg = (card.extra.self_damage as number | undefined) ?? 0;
-  if (selfDmg) applySelfDamage(caster, selfDmg, result);
-
-  // 빗나감 시 자해 (B2, G15 일부)
-  const missSelf = card.extra.self_damage_on_miss as number | string | undefined;
-  if (missSelf && !result.success) {
-    if (missSelf === "bet_amount") {
-      applySelfDamage(caster, bet, result);
-    } else if (typeof missSelf === "number") {
-      applySelfDamage(caster, missSelf, result);
-    }
-  }
-
-  // 추가 드로우 (G7)
-  const drawN = (card.extra.draw as number | undefined) ?? 0;
-  if (drawN) {
-    const drawn = caster.draw(drawN);
-    result.drawnCards.push(...drawn.map((c) => c.id));
-  }
+  postAttackEffects(card, caster, bet, result, successfulHits, totalDamage);
 }
 
 // ======================================================================
@@ -348,30 +428,26 @@ function executeCrit(
   result: CardResult,
   rng: Rng,
 ): void {
-  // Crit 은 명중 자체는 100%. 블러프/회피만 체크.
-  const hit = rollHitWithModifiers(100, caster, opponent, rng, result);
+  // 새 흐름: 블러프 → 명중 → 크리 → 데미지 계산 → 회피 → 감쇠/실드
+  const acc = computeHitAccuracy(card, caster, opponent, bet);
+  caster.nextAccBonus = 0;
 
-  let baseDamage = computeBaseAttackDamage(card, caster, opponent);
-  baseDamage += card.betDamage * bet;
-  baseDamage += consumeRage(caster);
-
-  // G2 야바위: damage_range
-  const range = card.extra.damage_range as [number, number] | undefined;
-  if (range) {
-    const [lo, hi] = range;
-    baseDamage = rng.randint(lo, hi);
-    // BN04/베르세르크/punish/judgment 재적용 (range 덮어쓰기 보정)
-    baseDamage += boonEffectNum(caster, "damage_bonus_all");
-    baseDamage += caster.berserkDamageBonus;
-    const punish = (card.extra.punish_missed_prev as number | undefined) ?? 0;
-    if (punish && opponent.missedLastTurn) baseDamage += punish;
-    const jb = (card.extra.judgment_bonus as number | undefined) ?? 0;
-    if (jb && opponent.hp > caster.hp) baseDamage += jb;
+  if (tryConsumeBluff(caster, rng, result)) {
+    caster.recordMiss();
+    result.success = false;
+    return;
   }
 
-  const critChance = computeCritChance(card, caster, bet);
-  caster.nextCritBonus = 0; // 사용 시 소모
+  const hit = rng.randint(1, 100) <= acc;
+  if (!hit) {
+    caster.recordMiss();
+    result.success = false;
+    return;
+  }
 
+  // 크리 판정
+  const critChance = computeCritChance(card, caster, opponent, bet);
+  caster.nextCritBonus = 0;
   let isCrit: boolean;
   if (caster.guaranteeNextCrit) {
     isCrit = true;
@@ -381,14 +457,28 @@ function executeCrit(
     isCrit = rng.randint(1, 100) <= critChance;
   }
 
-  if (!hit) {
-    caster.recordMiss();
-    result.success = false;
-    return;
+  // 데미지 계산
+  let baseDamage = computeBaseAttackDamage(card, caster, opponent);
+  baseDamage += card.betDamage * bet;
+  baseDamage += consumeRage(caster);
+
+  // damage_range (G2 야바위) — 카드 base damage 를 무작위값으로 교체
+  const range = card.extra.damage_range as [number, number] | undefined;
+  if (range) {
+    const [lo, hi] = range;
+    const roll = rng.randint(lo, hi);
+    baseDamage = baseDamage - card.damage + roll;
   }
 
-  let dmg = Math.floor(isCrit ? baseDamage * card.critMult : baseDamage);
+  let dmg = isCrit ? Math.floor(baseDamage * card.critMult) : baseDamage;
   if (result.doubleProc) dmg *= 2;
+
+  // 회피 (별도)
+  if (tryConsumeDodge(opponent, rng, result)) {
+    result.success = false;
+    result.critical = isCrit;
+    return;
+  }
 
   const dealt = applyDamageToOpponent(dmg, card, caster, opponent, result);
   result.success = true;
@@ -401,6 +491,8 @@ function executeCrit(
   if (missSelf === "bet_amount" && !isCrit) {
     applySelfDamage(caster, bet, result);
   }
+
+  postAttackEffects(card, caster, bet, result, dealt > 0 ? 1 : 0, dealt);
 }
 
 // ======================================================================
@@ -415,50 +507,75 @@ function executeFixed(
   result: CardResult,
   rng: Rng,
 ): void {
+  // ----- W15 최후의 심판: 모든 효과 무시한 진정한 고정 데미지 -----
+  if (card.extra.final_judgment_self_only) {
+    const raw = caster.totalBet;
+    const before = opponent.hp;
+    opponent.hp = Math.max(0, opponent.hp - raw);
+    const actual = before - opponent.hp;
+    opponent.totalDamageTaken += actual;
+    result.success = true;
+    result.damageToOpponent = actual;
+    if (actual > 0) caster.recordHit(actual, false);
+    result.notes.push(`확정 피해 ${actual} (모든 효과 무시)`);
+    return;
+  }
+
+  // ----- 일반 fixed 흐름: 블러프 → (100% 명중) → 데미지 계산 → 회피 → 감쇠/실드 -----
+  if (tryConsumeBluff(caster, rng, result)) {
+    caster.recordMiss();
+    result.success = false;
+    return;
+  }
+
   let base = computeBaseAttackDamage(card, caster, opponent);
   base += card.betDamage * bet;
   base += consumeRage(caster);
 
-  // W6 인내의 반격
+  // W6 인내의 반격: 받은 누적 피해 × ratio
   const patience = card.extra.patience as
-    | { div?: number; cap?: number }
+    | { ratio?: number }
     | undefined;
   if (patience) {
-    const div = patience.div ?? 3;
-    const cap = patience.cap ?? 35;
-    base = Math.min(cap, Math.floor(caster.totalDamageTaken / div));
-  }
-
-  // W15 최후의 심판
-  if (card.extra.final_judgment) {
-    base = opponent.totalBet;
+    const ratio = patience.ratio ?? 0.3;
+    base = Math.floor(caster.totalDamageTaken * ratio);
   }
 
   let dmg = base * (result.doubleProc ? 2 : 1);
+
+  if (tryConsumeDodge(opponent, rng, result)) {
+    result.success = false;
+    return;
+  }
 
   const dealt = applyDamageToOpponent(dmg, card, caster, opponent, result);
   result.success = true;
   result.damageToOpponent = dealt;
   if (dealt > 0) caster.recordHit(dealt, false);
 
-  // W7 방패 강타: 자기 방어 +8
+  // W7 방패 강타: 자기 방어
   const selfShield = (card.extra.self_shield as number | undefined) ?? 0;
   if (selfShield) {
     caster.shield += selfShield;
     result.shieldGained += selfShield;
   }
 
-  // W3 약점 포착: 상대 손패 랜덤 1장 침묵
+  // W3 약점 포착: 패시브로 봉인된 카드와 다른 카드를 1장 추가 침묵
   const silenceRandom =
     (card.extra.silence_random as number | undefined) ?? 0;
   if (silenceRandom && opponent.hand.length > 0) {
-    const targets = rng.sample(
-      opponent.hand,
-      Math.min(silenceRandom, opponent.hand.length),
+    const candidates = opponent.hand.filter(
+      (c) => !opponent.silencedCards.includes(c.id),
     );
-    for (const t of targets) {
-      opponent.silencedCards.push(t.id);
-      result.notes.push(`${t.name} 침묵`);
+    if (candidates.length > 0) {
+      const targets = rng.sample(
+        candidates,
+        Math.min(silenceRandom, candidates.length),
+      );
+      for (const t of targets) {
+        opponent.silencedCards.push(t.id);
+        result.notes.push(`${t.name} 추가 침묵`);
+      }
     }
   }
 
@@ -468,6 +585,12 @@ function executeFixed(
     opponent.betCapOverride = betCap;
     opponent.betCapOverrideTurns = 1;
     result.notes.push(`${opponent.name} 다음 턴 베팅 상한 ${betCap}`);
+  }
+
+  // W8 신성한 화살: 자기 회복
+  const selfHeal = (card.extra.self_heal as number | undefined) ?? 0;
+  if (selfHeal) {
+    result.heal += caster.heal(selfHeal);
   }
 }
 
@@ -802,7 +925,7 @@ export function executeCard(
   const isRepeat = options._doubleDownRepeat ?? false;
 
   if (!isRepeat) {
-    validateCardPlay(card, caster, gameTurn);
+    validateCardPlay(card, caster, gameTurn, opponent);
   }
 
   const cap = computeBetCap(card, caster);

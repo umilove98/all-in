@@ -138,6 +138,7 @@ describe("bet cap", () => {
 
 describe("Berserker cards", () => {
   it("B1 crushing blow full bet 100%", () => {
+    // B1: dmg 50, base_acc 80, bet_acc 1. bet 10 → 80+10+20 = 100.
     const [p, op] = makePlayers();
     const card = getCardById("B1");
     const result = executeCard(card, p, op, {
@@ -148,10 +149,10 @@ describe("Berserker cards", () => {
     expect(result.success).toBe(true);
     expect(result.bet).toBe(10);
     expect(p.hp).toBe(90);
-    expect(op.hp).toBe(82);
+    expect(op.hp).toBe(50);
   });
 
-  it("B1 no bet 40% → miss with max rng", () => {
+  it("B1 no bet 80% → miss with max rng", () => {
     const [p, op] = makePlayers();
     const result = executeCard(getCardById("B1"), p, op, {
       bet: 0,
@@ -162,7 +163,7 @@ describe("Berserker cards", () => {
     expect(op.hp).toBe(100);
   });
 
-  it("B2 frenzied charge miss → self damage 5", () => {
+  it("B2 frenzied charge miss → self damage 8", () => {
     const [p, op] = makePlayers();
     const result = executeCard(getCardById("B2"), p, op, {
       bet: 0,
@@ -170,11 +171,12 @@ describe("Berserker cards", () => {
       rng: alwaysMaxRng(),
     });
     expect(result.success).toBe(false);
-    expect(result.damageToSelf).toBe(5);
-    expect(p.hp).toBe(95);
+    expect(result.damageToSelf).toBe(8);
+    expect(p.hp).toBe(92);
   });
 
   it("B3 blood price lifesteal", () => {
+    // B3: dmg 45, lifesteal 0.3. 45*0.3 = 13.5 → 13.
     const [p, op] = makePlayers();
     p.hp = 50;
     const result = executeCard(getCardById("B3"), p, op, {
@@ -183,8 +185,8 @@ describe("Berserker cards", () => {
       rng: alwaysMinRng(),
     });
     expect(result.success).toBe(true);
-    expect(result.heal).toBe(6);
-    expect(p.hp).toBe(46);
+    expect(result.heal).toBe(13);
+    expect(p.hp).toBe(53);
   });
 
   it("B4 chain slash hits 3 times", () => {
@@ -197,7 +199,7 @@ describe("Berserker cards", () => {
     expect(result.success).toBe(true);
     expect(result.subResults).toHaveLength(3);
     expect(result.subResults.every((s) => s.hit === true)).toBe(true);
-    expect(result.damageToOpponent).toBe(30);
+    expect(result.damageToOpponent).toBe(54);  // 18 × 3
   });
 
   it("B5 execute bonus acc when hp low", () => {
@@ -210,7 +212,7 @@ describe("Berserker cards", () => {
       rng: fixedRandintRng(50),
     });
     expect(result.success).toBe(true);
-    expect(result.damageToOpponent).toBe(30);
+    expect(result.damageToOpponent).toBe(55);
   });
 
   it("B6 berserker's roar sets next_acc_bonus 25", () => {
@@ -273,7 +275,7 @@ describe("Berserker cards", () => {
       gameTurn: 1,
       rng: alwaysMinRng(),
     });
-    expect(result.damageToOpponent).toBe(26);
+    expect(result.damageToOpponent).toBe(58);  // 50 + 8
     expect(p.rageStacks).toBe(0);
   });
 
@@ -301,10 +303,10 @@ describe("Berserker cards", () => {
       rng: alwaysMinRng(),
     });
     expect(result.success).toBe(true);
-    expect(result.damageToOpponent).toBe(40);
+    expect(result.damageToOpponent).toBe(75);
   });
 
-  it("B14 blood madness full bet 90%+passive → hit", () => {
+  it("B14 blood madness full bet 30+60+30 → hit", () => {
     const [p, op] = makePlayers();
     const card = getCardById("B14");
     const result = executeCard(card, p, op, {
@@ -313,17 +315,17 @@ describe("Berserker cards", () => {
       rng: alwaysMaxRng(),
     });
     expect(result.success).toBe(true);
-    expect(result.damageToOpponent).toBe(50);
+    expect(result.damageToOpponent).toBe(60);
     expect(p.hp).toBe(85);
     expect(p.sigUsedIds.has(card.id)).toBe(true);
   });
 
-  it("B14 without bet always misses", () => {
+  it("B14 without bet 30% acc, miss with max rng", () => {
     const [p, op] = makePlayers();
     const result = executeCard(getCardById("B14"), p, op, {
       bet: 0,
       gameTurn: 3,
-      rng: alwaysMinRng(),
+      rng: alwaysMaxRng(),
     });
     expect(result.success).toBe(false);
   });
@@ -345,6 +347,7 @@ describe("Berserker cards", () => {
 
 describe("Gambler cards", () => {
   it("G1 card throw crit (rng=1)", () => {
+    // G1: dmg 25, base_acc 70, crit_mult 2. crit chance = 7. always_min: hit & crit. 50.
     const [p, op] = makePlayers("gambler", "warden");
     const result = executeCard(getCardById("G1"), p, op, {
       bet: 0,
@@ -352,21 +355,24 @@ describe("Gambler cards", () => {
       rng: fixedRandintRng(1),
     });
     expect(result.critical).toBe(true);
-    expect(result.damageToOpponent).toBe(37);
+    expect(result.damageToOpponent).toBe(50);
   });
 
-  it("G1 no crit base damage (rng=100)", () => {
+  it("G1 hit no crit (rng=50)", () => {
+    // rng=50: hit (50<=70), no crit (50>7). dmg 25.
     const [p, op] = makePlayers("gambler", "warden");
     const result = executeCard(getCardById("G1"), p, op, {
       bet: 0,
       gameTurn: 1,
-      rng: fixedRandintRng(100),
+      rng: fixedRandintRng(50),
     });
+    expect(result.success).toBe(true);
     expect(result.critical).toBe(false);
-    expect(result.damageToOpponent).toBe(15);
+    expect(result.damageToOpponent).toBe(25);
   });
 
   it("G2 shell game damage range (min)", () => {
+    // G2 range [20,35]. always_min: hit, crit, randint(20,35) = 20. 20*2 = 40.
     const [p, op] = makePlayers("gambler", "warden");
     const result = executeCard(getCardById("G2"), p, op, {
       bet: 0,
@@ -374,18 +380,19 @@ describe("Gambler cards", () => {
       rng: alwaysMinRng(),
     });
     expect(result.critical).toBe(true);
-    expect(result.damageToOpponent).toBe(20);
+    expect(result.damageToOpponent).toBe(40);
   });
 
   it("G3 marked dagger ignores shield", () => {
+    // G3: dmg 30, ignore_shield. rng=50: hit, no crit, 30 dmg through shield.
     const [p, op] = makePlayers("gambler", "warden");
     op.shield = 100;
     const result = executeCard(getCardById("G3"), p, op, {
       bet: 0,
       gameTurn: 1,
-      rng: fixedRandintRng(100),
+      rng: fixedRandintRng(50),
     });
-    expect(result.damageToOpponent).toBe(18);
+    expect(result.damageToOpponent).toBe(30);
   });
 
   it("G4 jackpot 60 dmg on roll 10", () => {
@@ -434,7 +441,7 @@ describe("Gambler cards", () => {
       gameTurn: 1,
       rng: critRng,
     });
-    expect(result.damageToOpponent).toBe(37);
+    expect(result.damageToOpponent).toBe(50);  // G1 crit: 25*2
     expect(result.subResults[0]!.repeat_of).toBe("G1");
   });
 
@@ -448,35 +455,38 @@ describe("Gambler cards", () => {
     expect(result.success).toBe(false);
   });
 
-  it("G6 all-in bet crit multiplier 3.5 → 70", () => {
+  it("G6 all-in bet crit multiplier 2.0 → 40", () => {
+    // G6: dmg 20, mult 2. always_min: hit & crit. 20*2 = 40.
     const [p, op] = makePlayers("gambler", "warden");
     const result = executeCard(getCardById("G6"), p, op, {
       bet: 0,
       gameTurn: 1,
       rng: fixedRandintRng(1),
     });
-    expect(result.damageToOpponent).toBe(70);
+    expect(result.critical).toBe(true);
+    expect(result.damageToOpponent).toBe(40);
   });
 
-  it("G7 trickster's hand draws 1", () => {
+  it("G7 trickster's hand basic crit", () => {
+    // G7 은 이제 crit 타입 (draw 효과 제거). dmg 20, acc 80.
     const [p, op] = makePlayers("gambler", "warden");
-    const before = p.hand.length;
-    executeCard(getCardById("G7"), p, op, {
-      bet: 10,
+    const result = executeCard(getCardById("G7"), p, op, {
+      bet: 0,
       gameTurn: 1,
       rng: alwaysMinRng(),
     });
-    expect(p.hand.length).toBe(before + 1);
+    expect(result.success).toBe(true);
   });
 
-  it("G8 marked card crit mult 2.0 → 44", () => {
+  it("G8 marked card crit mult 2.0 → 70", () => {
+    // G8: dmg 35, mult 2. always_min: 35*2 = 70.
     const [p, op] = makePlayers("gambler", "warden");
     const result = executeCard(getCardById("G8"), p, op, {
       bet: 0,
       gameTurn: 1,
       rng: fixedRandintRng(1),
     });
-    expect(result.damageToOpponent).toBe(44);
+    expect(result.damageToOpponent).toBe(70);
   });
 
   it("G9 evasion sets dodge", () => {
@@ -486,14 +496,16 @@ describe("Gambler cards", () => {
   });
 
   it("G9 dodge blocks incoming attack", () => {
+    // p(gambler) 가 회피 버프, op(warden) 의 W1 fixed 공격을 회피.
     const [p, op] = makePlayers("gambler", "warden");
-    op.dodgeNextPercent = 100;
-    const result = executeCard(getCardById("W8"), p, op, {
+    p.dodgeNextPercent = 100;
+    const result = executeCard(getCardById("W1"), op, p, {
       bet: 0,
       gameTurn: 1,
       rng: fixedRandintRng(1),
     });
     expect(result.success).toBe(false);
+    expect(result.dodged).toBe(true);
   });
 
   it("G10 redraw replaces hand", () => {
@@ -515,16 +527,17 @@ describe("Gambler cards", () => {
     expect(op.nextAttackMissChance).toBe(50);
   });
 
-  it("G12 bluff only affects hit/crit", () => {
+  it("G12 bluff forces miss on attacker", () => {
+    // 블러프는 hit/crit/fixed 모두 적용. always_min: 1<=50 발동.
     const [p, op] = makePlayers("gambler", "warden");
     executeCard(getCardById("G12"), p, op, { rng: alwaysMinRng() });
-    // op(warden) 이 공격 — W8 hit 카드. 블러프 발동으로 miss.
-    const result = executeCard(getCardById("W8"), op, p, {
+    const result = executeCard(getCardById("W1"), op, p, {
       bet: 0,
       gameTurn: 1,
       rng: fixedRandintRng(1),
     });
     expect(result.success).toBe(false);
+    expect(result.bluffTriggered).toBe(true);
     expect(op.nextAttackMissChance).toBe(0);
   });
 
@@ -543,16 +556,18 @@ describe("Gambler cards", () => {
       rng: alwaysMinRng(),
     });
     expect(p.guaranteeNextCrit).toBe(true);
+    // G1 acc 70. rng=50 → hit (50<=70). crit guaranteed regardless of crit roll.
     const result = executeCard(getCardById("G1"), p, op, {
       bet: 0,
       gameTurn: 3,
-      rng: fixedRandintRng(100),
+      rng: fixedRandintRng(50),
     });
     expect(result.critical).toBe(true);
     expect(p.guaranteeNextCrit).toBe(false);
   });
 
-  it("G15 all-in crit fail → self damage = bet", () => {
+  it("G15 all-in crit fail at high bet → self damage = bet", () => {
+    // bet 12: acc 100, crit 55. fixed(100): hit (100<=100) but no crit (100>55) → self damage 12.
     const [p, op] = makePlayers("gambler", "warden");
     const result = executeCard(getCardById("G15"), p, op, {
       bet: 12,
@@ -563,14 +578,16 @@ describe("Gambler cards", () => {
     expect(result.damageToSelf).toBe(12);
   });
 
-  it("G15 all-in no bet no crit → 25dmg, no self", () => {
+  it("G15 all-in no bet → crit (acc 50, crit 5+45=50) → 75 dmg", () => {
+    // always_min: hit & crit. dmg 25*3 = 75.
     const [p, op] = makePlayers("gambler", "warden");
     const result = executeCard(getCardById("G15"), p, op, {
       bet: 0,
       gameTurn: 3,
       rng: fixedRandintRng(1),
     });
-    expect(result.damageToOpponent).toBe(25);
+    expect(result.critical).toBe(true);
+    expect(result.damageToOpponent).toBe(75);
     expect(result.damageToSelf).toBe(0);
   });
 });
@@ -598,20 +615,20 @@ describe("Warden cards", () => {
     expect(result.damageToOpponent).toBe(20);
   });
 
-  it("W2 punishing light bonus when missed prev", () => {
+  it("W2 punishing light bonus when hit prev", () => {
     const [p, op] = makePlayers("warden", "berserker");
-    op.missedLastTurn = true;
+    op.hitLastTurn = true;
     const result = executeCard(getCardById("W2"), p, op, {
       bet: 0,
       gameTurn: 1,
       rng: alwaysMinRng(),
     });
-    expect(result.damageToOpponent).toBe(20);
+    expect(result.damageToOpponent).toBe(20);  // 12 + 8
   });
 
-  it("W2 no bonus when not missed", () => {
+  it("W2 no bonus when not hit prev", () => {
     const [p, op] = makePlayers("warden", "berserker");
-    op.missedLastTurn = false;
+    op.hitLastTurn = false;
     const result = executeCard(getCardById("W2"), p, op, {
       bet: 0,
       gameTurn: 1,
@@ -642,7 +659,7 @@ describe("Warden cards", () => {
     expect(op.betCapOverrideTurns).toBe(1);
   });
 
-  it("W5 judgment bonus when opponent hp > caster", () => {
+  it("W5 judgment usable when self hp < opp hp", () => {
     const [p, op] = makePlayers("warden", "berserker");
     p.hp = 50;
     op.hp = 100;
@@ -651,22 +668,23 @@ describe("Warden cards", () => {
       gameTurn: 1,
       rng: alwaysMinRng(),
     });
-    expect(result.damageToOpponent).toBe(22);
-  });
-
-  it("W5 no bonus when opponent hp <= caster", () => {
-    const [p, op] = makePlayers("warden", "berserker");
-    p.hp = 100;
-    op.hp = 50;
-    const result = executeCard(getCardById("W5"), p, op, {
-      bet: 0,
-      gameTurn: 1,
-      rng: alwaysMinRng(),
-    });
     expect(result.damageToOpponent).toBe(14);
   });
 
-  it("W6 patience retort uses total_damage_taken / 3", () => {
+  it("W5 blocked when self hp >= opp hp", () => {
+    const [p, op] = makePlayers("warden", "berserker");
+    p.hp = 100;
+    op.hp = 50;
+    expect(() =>
+      executeCard(getCardById("W5"), p, op, {
+        bet: 0,
+        gameTurn: 1,
+        rng: alwaysMinRng(),
+      }),
+    ).toThrow();
+  });
+
+  it("W6 patience retort uses total_damage_taken × 0.3", () => {
     const [p, op] = makePlayers("warden", "berserker");
     p.totalDamageTaken = 30;
     const result = executeCard(getCardById("W6"), p, op, {
@@ -674,10 +692,10 @@ describe("Warden cards", () => {
       gameTurn: 1,
       rng: alwaysMinRng(),
     });
-    expect(result.damageToOpponent).toBe(10);
+    expect(result.damageToOpponent).toBe(9);  // 30 × 0.3
   });
 
-  it("W6 patience capped at 35", () => {
+  it("W6 patience no cap", () => {
     const [p, op] = makePlayers("warden", "berserker");
     p.totalDamageTaken = 200;
     const result = executeCard(getCardById("W6"), p, op, {
@@ -685,7 +703,7 @@ describe("Warden cards", () => {
       gameTurn: 1,
       rng: alwaysMinRng(),
     });
-    expect(result.damageToOpponent).toBe(35);
+    expect(result.damageToOpponent).toBe(60);  // 200 × 0.3
   });
 
   it("W7 shield bash adds shield", () => {
@@ -699,15 +717,19 @@ describe("Warden cards", () => {
     expect(p.shield).toBe(8);
   });
 
-  it("W8 holy arrow hit check", () => {
+  it("W8 holy arrow fixed with self heal", () => {
+    // W8 은 이제 fixed: dmg 10, 강화 0, self_heal 10. 항상 명중.
     const [p, op] = makePlayers("warden", "berserker");
+    p.hp = 50;
     const result = executeCard(getCardById("W8"), p, op, {
       bet: 0,
       gameTurn: 1,
-      rng: fixedRandintRng(50),
+      rng: alwaysMinRng(),
     });
     expect(result.success).toBe(true);
-    expect(result.damageToOpponent).toBe(16);
+    expect(result.damageToOpponent).toBe(10);
+    expect(result.heal).toBe(10);
+    expect(p.hp).toBe(60);
   });
 
   it("W9 shield wall 18", () => {
@@ -738,10 +760,11 @@ describe("Warden cards", () => {
     expect(p.betCapOverride).toBeNull();
   });
 
-  it("W12 prescience peek and dodge 30", () => {
+  it("W12 prescience dodge 50", () => {
+    // 변경: peek 제거, dodge 30 → 50.
     const [p, op] = makePlayers("warden", "berserker");
     executeCard(getCardById("W12"), p, op, { rng: alwaysMinRng() });
-    expect(p.dodgeNextPercent).toBe(30);
+    expect(p.dodgeNextPercent).toBe(50);
   });
 
   it("W13 regroup draws 2", () => {
@@ -760,24 +783,27 @@ describe("Warden cards", () => {
     });
     expect(p.incomingDamageMult).toBe(0.5);
     expect(p.incomingDamageMultTurns).toBe(3);
-    // 공격 받으면 -50%: B1 18뎀 × 0.5 = 9
+    // B1 50뎀 × 0.5 = 25
     const result = executeCard(getCardById("B1"), op, p, {
       bet: 10,
       gameTurn: 3,
       rng: alwaysMaxRng(),
     });
-    expect(result.damageToOpponent).toBe(9);
+    expect(result.damageToOpponent).toBe(25);
   });
 
-  it("W15 final judgment = opponent total_bet", () => {
+  it("W15 final judgment = self total bet (bypass everything)", () => {
     const [p, op] = makePlayers("warden", "berserker");
+    p.totalBet = 8;
     op.totalBet = 30;
+    op.shield = 100;  // 무시되어야 함
+    op.incomingDamageMult = 0.5;  // 무시되어야 함
     const result = executeCard(getCardById("W15"), p, op, {
       bet: 0,
       gameTurn: 3,
       rng: alwaysMinRng(),
     });
-    expect(result.damageToOpponent).toBe(30);
+    expect(result.damageToOpponent).toBe(8);
   });
 });
 
@@ -788,12 +814,13 @@ describe("Global boon effects", () => {
     const boon = getBoonById("BN04");
     const p = new Player({ name: "P1", className: "berserker", boon, seed: 1 });
     const op = new Player({ name: "P2", className: "warden", seed: 2 });
+    // B1 50 + 3 = 53
     const result = executeCard(getCardById("B1"), p, op, {
       bet: 10,
       gameTurn: 1,
       rng: alwaysMinRng(),
     });
-    expect(result.damageToOpponent).toBe(21);
+    expect(result.damageToOpponent).toBe(53);
   });
 
   it("BN05 precision eye +15 acc", () => {
@@ -837,14 +864,14 @@ describe("Global boon effects", () => {
     const boon = getBoonById("BN07");
     const p = new Player({ name: "P1", className: "berserker", boon, seed: 1 });
     const op = new Player({ name: "P2", className: "warden", seed: 2 });
-    // double_proc_chance 30%. fixed=1 → 1 <= 30, 발동.
+    // B1 50 × 2 = 100
     const result = executeCard(getCardById("B1"), p, op, {
       bet: 10,
       gameTurn: 1,
       rng: fixedRandintRng(1),
     });
     expect(result.doubleProc).toBe(true);
-    expect(result.damageToOpponent).toBe(36);
+    expect(result.damageToOpponent).toBe(100);
   });
 });
 
@@ -863,6 +890,7 @@ describe("Shield interactions", () => {
   });
 
   it("marked dagger bypasses shield, still hit by BN02", () => {
+    // G3: dmg 30, ignore_shield. BN02 -2 적용. rng=50 → hit, no crit.
     const boon = getBoonById("BN02");
     const p = new Player({ name: "P1", className: "gambler", seed: 1 });
     const op = new Player({ name: "P2", className: "warden", boon, seed: 2 });
@@ -870,9 +898,8 @@ describe("Shield interactions", () => {
     const result = executeCard(getCardById("G3"), p, op, {
       bet: 0,
       gameTurn: 1,
-      rng: fixedRandintRng(100),
+      rng: fixedRandintRng(50),
     });
-    // 18 뎀, shield 무시, BN02 -2 = 16
-    expect(result.damageToOpponent).toBe(16);
+    expect(result.damageToOpponent).toBe(28);
   });
 });

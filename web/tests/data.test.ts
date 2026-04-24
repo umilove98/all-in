@@ -77,16 +77,16 @@ describe("card loader", () => {
     const c = getCardById("B1");
     expect(c.name).toBe("분쇄 일격");
     expect(c.type).toBe("hit");
-    expect(c.damage).toBe(18);
-    expect(c.baseAcc).toBe(40);
-    expect(c.betAcc).toBe(6);
+    expect(c.damage).toBe(50);
+    expect(c.baseAcc).toBe(80);
+    expect(c.betAcc).toBe(1);
     expect(c.maxBet).toBe(10);
     expect(c.signature).toBe(false);
   });
 
   it("B4 chain slash hit_count in extra", () => {
     const c = getCardById("B4");
-    expect(c.damage).toBe(10);
+    expect(c.damage).toBe(18);
     expect(c.extra.hit_count).toBe(3);
   });
 
@@ -100,18 +100,18 @@ describe("card loader", () => {
     expect(c.signature).toBe(true);
     expect(c.category).toBe("signature");
     expect(c.maxBet).toBe(15);
-    expect(c.baseAcc).toBe(0);
-    expect(c.betAcc).toBe(6);
-    expect(c.damage).toBe(50);
+    expect(c.baseAcc).toBe(30);
+    expect(c.betAcc).toBe(4);
+    expect(c.damage).toBe(60);
   });
 
   it("G6 all-in bet crit", () => {
     const c = getCardById("G6");
     expect(c.type).toBe("crit");
     expect(c.damage).toBe(20);
-    expect(c.baseCrit).toBe(20);
-    expect(c.critMult).toBe(3.5);
-    expect(c.betCrit).toBe(6);
+    expect(c.baseAcc).toBe(50);
+    expect(c.betCrit).toBe(3);
+    expect(c.critMult).toBe(2);
   });
 
   it("G4 jackpot extra", () => {
@@ -141,16 +141,16 @@ describe("card loader", () => {
     expect(c.maxBet).toBe(10);
   });
 
-  it("W5 judgment bet_damage 2", () => {
+  it("W5 judgment condition self_hp_below_opp", () => {
     const c = getCardById("W5");
     expect(c.betDamage).toBe(2);
-    expect(c.extra.judgment_bonus).toBe(8);
+    expect(c.extra.condition).toEqual({ self_hp_below_opp: true });
   });
 
   it("W15 final judgment flag", () => {
     const c = getCardById("W15");
     expect(c.signature).toBe(true);
-    expect(c.extra.final_judgment).toBe(true);
+    expect(c.extra.final_judgment_self_only).toBe(true);
   });
 
   // ---- 구조 검증 ----
