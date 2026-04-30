@@ -1,0 +1,238 @@
+/* Tournament scenes — lobby, bracket, postMatch.
+   Wait-room 톤 (어두운 배경 + 양피지 + 황금 액센트) 를 따른다. */
+
+/* =====================================================================
+   Tournament Lobby — 참가자 목록 + 호스트 시작
+   ===================================================================== */
+
+.wr-phase-tournament-lobby .wrFrame {
+  justify-content: flex-start;
+  gap: 28px;
+}
+
+.tLobbyList {
+  width: 760px; max-width: 92%;
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 22px 26px;
+  border: 1px solid rgba(201,148,84,0.22);
+  background: rgba(18,10,22,0.55);
+  box-shadow: 0 0 22px rgba(201,148,84,0.06), 0 0 0 1px rgba(201,148,84,0.10) inset;
+  animation: scenePreambleIn 900ms ease-out both 0.15s;
+  max-height: 46vh;
+  overflow-y: auto;
+}
+
+.tLobbyRow {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 18px;
+  border: 1px solid rgba(201,148,84,0.15);
+  background: rgba(28,18,34,0.55);
+  transition: border-color 200ms ease, background 200ms ease;
+}
+.tLobbyRow:hover {
+  border-color: rgba(201,148,84,0.35);
+}
+.tLobbyRow.me {
+  border-color: rgba(240,205,130,0.55);
+  background: linear-gradient(180deg, rgba(60,30,14,0.5) 0%, rgba(28,18,34,0.7) 100%);
+  box-shadow: inset 0 0 14px rgba(240,205,130,0.10);
+}
+.tLobbyRow.offline {
+  opacity: 0.5;
+  filter: grayscale(0.4);
+}
+
+.tLobbyMark {
+  font-size: 18px;
+  color: rgba(240,205,130,0.7);
+  filter: drop-shadow(0 0 8px rgba(201,148,84,0.3));
+}
+.tLobbyRow.me .tLobbyMark {
+  color: var(--scene-gold);
+}
+
+.tLobbyName {
+  font-family: 'Noto Serif KR', serif;
+  font-size: 18px; font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--scene-parch);
+  text-shadow: 0 1px 4px rgba(0,0,0,0.7);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tLobbyTags {
+  display: flex; gap: 6px; align-items: center;
+}
+.tLobbyTag {
+  font-family: 'Cinzel', serif;
+  font-size: 10px; font-weight: 800; letter-spacing: 2px;
+  padding: 3px 8px;
+  border: 1px solid rgba(201,148,84,0.45);
+  color: rgba(240,205,130,0.85);
+  background: rgba(0,0,0,0.35);
+}
+.tLobbyTag.host {
+  border-color: var(--scene-gold);
+  color: var(--scene-gold);
+  text-shadow: 0 0 8px rgba(240,205,130,0.4);
+}
+.tLobbyTag.me {
+  border-color: rgba(217,112,48,0.7);
+  color: #ffd9a8;
+  background: rgba(80,30,14,0.55);
+}
+.tLobbyTag.off {
+  border-color: rgba(180,180,180,0.35);
+  color: rgba(220,220,220,0.6);
+}
+
+/* =====================================================================
+   Tournament Bracket — 라운드 트리
+   ===================================================================== */
+
+.tBracketFrame {
+  padding: 70px 40px 64px !important;
+}
+
+.tBracket {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  gap: 36px;
+  width: 100%;
+  padding: 22px 12px 8px;
+  overflow-x: auto;
+  animation: scenePreambleIn 900ms ease-out both 0.18s;
+}
+
+.tRound {
+  display: flex; flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+  min-width: 220px;
+  flex: 0 0 auto;
+  justify-content: space-around;
+}
+.tRoundTitle {
+  font-family: 'Cinzel', serif;
+  font-size: 12px; font-weight: 800; letter-spacing: 6px;
+  text-transform: uppercase;
+  color: rgba(240,205,130,0.65);
+  text-align: center;
+  margin-bottom: 4px;
+  text-shadow: 0 0 10px rgba(240,205,130,0.25);
+}
+
+.tMatch {
+  display: flex; flex-direction: column;
+  border: 1px solid rgba(201,148,84,0.25);
+  background: rgba(18,10,22,0.65);
+  position: relative;
+  transition: border-color 220ms ease, box-shadow 220ms ease, transform 220ms ease;
+}
+.tMatch.mine {
+  border-color: rgba(240,205,130,0.7);
+  box-shadow: 0 0 18px rgba(240,205,130,0.18), inset 0 0 12px rgba(240,205,130,0.08);
+}
+.tMatch.status-in_progress {
+  border-color: rgba(217,112,48,0.7);
+  box-shadow: 0 0 22px rgba(217,112,48,0.25), inset 0 0 16px rgba(217,80,48,0.08);
+}
+.tMatch.status-in_progress::after {
+  content: "";
+  position: absolute; inset: -1px;
+  border: 1px solid rgba(217,112,48,0.5);
+  pointer-events: none;
+  animation: tMatchPulse 1.8s ease-in-out infinite;
+}
+@keyframes tMatchPulse {
+  0%,100% { opacity: 0.4; }
+  50% { opacity: 0.9; }
+}
+.tMatch.status-finished {
+  opacity: 0.78;
+}
+.tMatch.status-bye {
+  border-style: dashed;
+  opacity: 0.65;
+}
+.tMatch.status-pending {
+  opacity: 0.55;
+  border-style: dashed;
+}
+
+.tMatchSlot {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(201,148,84,0.15);
+}
+.tMatchSlot:last-of-type {
+  border-bottom: none;
+}
+.tMatchSlot.won {
+  background: linear-gradient(90deg, rgba(80,50,18,0.55) 0%, rgba(40,24,10,0.5) 100%);
+}
+.tMatchSlot.won .tMatchName {
+  color: var(--scene-parch);
+  text-shadow: 0 0 12px rgba(240,205,130,0.45);
+}
+.tMatchSlot.lost {
+  opacity: 0.45;
+  text-decoration: line-through;
+  text-decoration-color: rgba(180,80,80,0.5);
+}
+
+.tMatchName {
+  font-family: 'Noto Serif KR', serif;
+  font-size: 14px; font-weight: 700;
+  letter-spacing: 2px;
+  color: rgba(232,217,184,0.85);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.tMatchTag {
+  font-family: 'Cinzel', serif;
+  font-size: 9px; font-weight: 800; letter-spacing: 2px;
+  padding: 2px 6px;
+  border: 1px solid rgba(217,112,48,0.7);
+  color: #ffd9a8;
+  background: rgba(80,30,14,0.55);
+  animation: tMatchPulse 1.4s ease-in-out infinite;
+}
+
+.tMatchVs {
+  font-family: 'Cinzel', serif;
+  font-size: 9px; font-weight: 800; letter-spacing: 4px;
+  color: rgba(240,205,130,0.45);
+  text-align: center;
+  padding: 4px 0;
+  background: rgba(0,0,0,0.3);
+  border-top: 1px solid rgba(201,148,84,0.12);
+  border-bottom: 1px solid rgba(201,148,84,0.12);
+  text-transform: uppercase;
+}
+.tMatch.status-in_progress .tMatchVs {
+  color: rgba(255,200,160,0.85);
+  text-shadow: 0 0 8px rgba(217,112,48,0.5);
+}
+
+/* =====================================================================
+   Post-match (토너먼트 매치 종료 후) — endingStyle 위에 끼얹는 보강
+   ===================================================================== */
+
+.endSubtitle {
+  margin-top: 18px;
+  font-family: 'Noto Serif KR', serif;
+  font-size: 16px; font-weight: 500; letter-spacing: 4px;
+  color: rgba(240,205,130,0.75);
+  font-style: italic;
+  text-shadow: 0 2px 8px rgba(0,0,0,0.7);
+}

@@ -8,6 +8,7 @@ import "./ui/scenes/classPickStyle.css";
 import "./ui/scenes/draftStyle.css";
 import "./ui/scenes/duelStyle.css";
 import "./ui/scenes/endingStyle.css";
+import "./ui/scenes/tournamentStyle.css";
 // Minor overrides on top of the bundled CSS (hover z-index, tooltips, etc)
 import "./ui/scenes/overrides.css";
 import { App } from "./app";

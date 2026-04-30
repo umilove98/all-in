@@ -130,20 +130,46 @@ export function renderLobby(root: HTMLElement, app: App): void {
       }
     });
 
+    const applyMode = (next: Mode) => {
+      if (mode === next) return;
+      mode = next;
+      // 부분 업데이트 — innerHTML 다시 그리지 않고 라벨/active 클래스만 갱신
+      stage
+        .querySelector<HTMLElement>("#mainModeDuel")
+        ?.classList.toggle("active", mode === "duel");
+      stage
+        .querySelector<HTMLElement>("#mainModeTournament")
+        ?.classList.toggle("active", mode === "tournament");
+      const createSpan = stage.querySelector<HTMLElement>(
+        ".mainCreateBtn span:nth-child(2)",
+      );
+      if (createSpan)
+        createSpan.textContent =
+          mode === "tournament" ? "새 토너먼트" : "새 방 만들기";
+      const inputLabel = stage.querySelector<HTMLElement>(".mainInputLabel");
+      if (inputLabel)
+        inputLabel.textContent =
+          mode === "tournament" ? "토너먼트 코드 입력" : "방 코드 입력";
+      const helper = stage.querySelector<HTMLElement>(".mainHelper");
+      const trimmed = code.trim();
+      const canJoin = trimmed.length > 0;
+      if (helper)
+        helper.textContent = canJoin
+          ? mode === "tournament"
+            ? "입력한 토너먼트에 참가한다"
+            : "입력한 방에 입장한다"
+          : " ";
+      const footMode = stage.querySelector<HTMLElement>(".mainFoot span:nth-child(2)");
+      if (footMode)
+        footMode.textContent =
+          mode === "tournament" ? "2~16P TOURNAMENT" : "2P DUEL";
+    };
     stage
       .querySelector<HTMLButtonElement>("#mainModeDuel")
-      ?.addEventListener("click", () => {
-        if (mode === "duel") return;
-        mode = "duel";
-        render();
-      });
+      ?.addEventListener("click", () => applyMode("duel"));
     stage
       .querySelector<HTMLButtonElement>("#mainModeTournament")
-      ?.addEventListener("click", () => {
-        if (mode === "tournament") return;
-        mode = "tournament";
-        render();
-      });
+      ?.addEventListener("click", () => applyMode("tournament"));
 
     stage
       .querySelector<HTMLFormElement>("#mainCreateForm")
