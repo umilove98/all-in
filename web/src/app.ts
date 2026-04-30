@@ -602,17 +602,19 @@ export class App {
         break;
       }
       case "t_match_started":
-        // 매치 시작 — 1:1 game state 초기화 + coin_toss 메시지처럼 동작
+        // 매치 시작 — 1:1 game state 초기화. coin_toss 는 t_match_event 로
+        // 별도 디스패치되므로 여기서 다시 부르지 않는다 (중복 방지).
         this.clearBattleState();
         if (this.state.tournament) {
           this.state.tournament.lastMatchEnded = null;
           this.state.tournament.acknowledgedLastMatch = false;
+          // 즉시 myCurrentMatchId 를 set — t_bracket 이 늦게 와도 sendInMatch 가
+          // matchId 를 알아야 classPick/duel 클릭 메시지가 송신됨.
+          this.state.tournament.myCurrentMatchId = msg.matchId;
         }
-        this.onServerMsg({
-          type: "coin_toss",
-          firstPickId: msg.firstPickId,
-        });
-        return; // onServerMsg 가 render 호출
+        // firstPickId 도 즉시 set (t_match_event(room) 도착 전 픽 흐름 안전망)
+        this.state.firstPickId = msg.firstPickId;
+        break;
       case "t_match_event":
         // 매치 내 1:1 ServerMsg 를 그대로 디스패치 → 기존 씬 자연스럽게 동작
         this.onServerMsg(msg.event);
