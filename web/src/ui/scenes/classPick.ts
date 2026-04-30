@@ -201,7 +201,7 @@ function wireHandlers(stage: HTMLElement, app: App, iAmFirstPick: boolean): void
       if (!meIsPicker) return;
       if (btn.classList.contains("cc-locked")) return;
       if (btn.disabled) return;
-      app.state.client?.send({ type: "pick_class", className: id });
+      app.sendGameMsg({ type: "pick_class", className: id });
     });
   });
 }
@@ -668,7 +668,7 @@ function autoPickClass(app: App, iAmFirstPick: boolean): void {
   const available = CLASS_IDS.filter((id) => !disabled.has(id));
   if (available.length === 0) return;
   const pick = available[Math.floor(Math.random() * available.length)]!;
-  app.state.client?.send({ type: "pick_class", className: pick });
+  app.sendGameMsg({ type: "pick_class", className: pick });
 }
 
 function stopCountdown(stage: HTMLElement): void {

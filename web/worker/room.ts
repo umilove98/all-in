@@ -1,27 +1,19 @@
 /**
- * Room Durable Object — party/server.ts 를 Cloudflare Workers DO 네이티브 API로
- * 포팅한 버전. 게임 로직은 완전히 동일, WebSocket/방 관리 API만 교체.
+ * Room Durable Object — 1:1 빠른 매치 방 1개.
  *
- * 상태 머신: lobby → coin_toss → pick_class → pick_boon → battle → ended.
+ * 게임 로직 자체는 `MatchEngine` 클래스로 추출되어 있고, Room 은
+ *   - WebSocket 연결 관리 (slots/conns)
+ *   - lobby 단계 join/leave
+ *   - 2명 차면 MatchEngine 생성 + startCoinToss
+ *   - MatchEngine hooks 콜백을 broadcast/sendToId 로 변환
+ *   - rematch (engine 재생성)
+ * 만 담당. 외부 메시지 형식은 변경 없이 1:1 클라이언트와 호환.
  */
 
 import { DurableObject } from "cloudflare:workers";
 
 import {
-  CLASS_NAMES,
-  ClassName,
-  Game,
-  InvalidPlayError,
-  MAX_TURNS,
-  Player,
-  computeCritChance,
-  computeHitAccuracy,
-  createRng,
-  executeCard,
-  getAllBoons,
-  getBoonById,
-} from "../src/engine";
-import {
+  CardPlayedMsg,
   ClientMsg,
   EndReason,
   MAX_PLAYERS_PER_ROOM,
@@ -31,26 +23,21 @@ import {
   ServerMsg,
 } from "../src/net/protocol";
 import type { Env } from "./index";
+import { MatchEngine, MatchEngineHooks } from "./match-engine";
 
-interface PlayerSlot {
+interface RoomSlot {
   connectionId: string;
   name: string;
-  className: ClassName | null;
-  boonId: string | null;
-  boonOptions: string[];
-  boonRerollsLeft: number;
-  player: Player | null;
 }
 
 export class Room extends DurableObject<Env> {
-  private phase: Phase = "lobby";
-  private slots = new Map<string, PlayerSlot>();
+  private slots = new Map<string, RoomSlot>();
   private slotOrder: string[] = [];
-  private firstPickId: string | null = null;
-  private game: Game | null = null;
-  private cardsUsedThisTurn = 0;
-  private winnerId: string | null = null;
-  /** 활성 WebSocket 맵 (connectionId → WebSocket). PartyKit 의 Party.Room 역할. */
+  /** 매치 진행 중일 때만 non-null. lobby 단계에서는 null. */
+  private engine: MatchEngine | null = null;
+  /** "ended" 단계에서는 engine 을 유지(스탯 표시용) 하므로 별도 플래그. */
+  private ended = false;
+  /** 활성 WebSocket 맵 (connectionId → WebSocket). */
   private conns = new Map<string, WebSocket>();
   private roomId: string = "";
 
@@ -62,7 +49,6 @@ export class Room extends DurableObject<Env> {
     if (request.headers.get("Upgrade") !== "websocket") {
       return new Response("Expected WebSocket", { status: 426 });
     }
-    // roomId 추출 (브로드캐스트/로깅용)
     const url = new URL(request.url);
     const match = /^\/parties\/[^/]+\/([^/]+)\/?$/.exec(url.pathname);
     if (match && !this.roomId) this.roomId = match[1]!.toUpperCase();
@@ -105,7 +91,7 @@ export class Room extends DurableObject<Env> {
       this.closeConn(connectionId);
       return;
     }
-    if (this.phase !== "lobby") {
+    if (this.engine !== null && !this.ended) {
       this.sendToId(connectionId, {
         type: "error",
         message: "이미 게임이 진행 중입니다.",
@@ -148,25 +134,27 @@ export class Room extends DurableObject<Env> {
         this.handleLeave(senderId);
         break;
       case "pick_class":
-        this.handlePickClass(senderId, msg.className);
+        this.requireEngine().pickClass(senderId, msg.className);
         break;
       case "pick_boon":
-        this.handlePickBoon(senderId, msg.boonId);
+        this.requireEngine().pickBoon(senderId, msg.boonId);
         break;
       case "reroll_boon":
-        this.handleRerollBoon(senderId);
+        this.requireEngine().rerollBoon(senderId);
         break;
       case "play_card":
-        this.handlePlayCard(senderId, msg.cardId, msg.bet);
+        this.requireEngine().playCard(senderId, msg.cardId, msg.bet);
         break;
       case "end_turn":
-        this.handleEndTurn(senderId);
+        this.requireEngine().endTurn(senderId);
         break;
       case "rematch":
         this.handleRematch(senderId);
         break;
       case "view_pile":
-        this.handleViewPile(senderId, msg.side, msg.kind);
+        if (this.engine && !this.ended) {
+          this.engine.viewPile(senderId, msg.side, msg.kind);
+        }
         break;
       default: {
         // @ts-expect-error exhaustive
@@ -179,14 +167,40 @@ export class Room extends DurableObject<Env> {
     }
   }
 
+  private requireEngine(): MatchEngine {
+    if (!this.engine || this.ended) {
+      throw new Error("게임이 진행 중이 아닙니다.");
+    }
+    return this.engine;
+  }
+
   // =========================================================
-  // 핸들러: join / leave
+  // join / leave
   // =========================================================
 
   private handleJoin(senderId: string, name: string) {
+    const trimmed = trimName(name);
+
+    // 진행 중에는 이름 변경만 (실제로는 도달하지 않음 — connect 단계에서 거부)
+    if (this.engine && !this.ended) {
+      const slot = this.slots.get(senderId);
+      if (slot && trimmed) slot.name = trimmed;
+      this.broadcastRoom();
+      return;
+    }
+
+    // ended 단계에서 새 join 은 거부 (현재 두 사람만 rematch)
+    if (this.ended) {
+      this.sendToId(senderId, {
+        type: "error",
+        message: "이전 매치가 진행 중입니다. 잠시 후 다시 시도하세요.",
+      });
+      return;
+    }
+
     let slot = this.slots.get(senderId);
     if (slot) {
-      slot.name = trimName(name);
+      if (trimmed) slot.name = trimmed;
       this.broadcastRoom();
       return;
     }
@@ -196,19 +210,14 @@ export class Room extends DurableObject<Env> {
     }
     slot = {
       connectionId: senderId,
-      name: trimName(name) || `Player-${this.slots.size + 1}`,
-      className: null,
-      boonId: null,
-      boonOptions: [],
-      boonRerollsLeft: 0,
-      player: null,
+      name: trimmed || `Player-${this.slots.size + 1}`,
     };
     this.slots.set(senderId, slot);
     this.slotOrder.push(senderId);
     this.broadcastRoom();
 
     if (this.slots.size === MAX_PLAYERS_PER_ROOM) {
-      this.startCoinToss();
+      this.startMatch();
     }
   }
 
@@ -217,454 +226,93 @@ export class Room extends DurableObject<Env> {
     this.slots.delete(senderId);
     this.slotOrder = this.slotOrder.filter((id) => id !== senderId);
 
-    if (this.phase !== "lobby") {
-      this.resetRoom();
+    // 진행 중/종료 상태 모두에서 engine 폐기 — 짝이 안 맞으므로 lobby 로 리셋
+    if (this.engine) {
+      this.engine = null;
+      this.ended = false;
     }
     this.broadcastRoom();
   }
 
-  private resetRoom() {
-    this.phase = "lobby";
-    this.firstPickId = null;
-    this.game = null;
-    this.cardsUsedThisTurn = 0;
-    this.winnerId = null;
-    for (const slot of this.slots.values()) {
-      slot.className = null;
-      slot.boonId = null;
-      slot.boonOptions = [];
-      slot.boonRerollsLeft = 0;
-      slot.player = null;
-    }
-  }
-
   // =========================================================
-  // 매치 시퀀스: 코인토스
+  // 매치 시작 / 재대전
   // =========================================================
 
-  private startCoinToss() {
-    const rng = createRng(Date.now() ^ this.slots.size);
-    const idx = rng.randint(0, 1);
-    this.firstPickId = this.slotOrder[idx]!;
-    this.phase = "pick_class";
-
-    this.broadcastAll({
-      type: "coin_toss",
-      firstPickId: this.firstPickId,
-    });
-    this.broadcastRoom();
-
-    this.sendClassOptions(this.firstPickId);
-  }
-
-  private sendClassOptions(connectionId: string) {
-    const other = this.getOtherSlot(connectionId);
-    const disabled = other?.className ? [other.className] : [];
-    this.sendToId(connectionId, {
-      type: "class_options",
-      disabled,
-    });
-  }
-
-  private handlePickClass(senderId: string, className: ClassName) {
-    if (this.phase !== "pick_class") {
-      throw new Error("지금은 직업 선택 단계가 아닙니다.");
-    }
-    const slot = this.slots.get(senderId);
-    if (!slot) throw new Error("방에 참가하지 않았습니다.");
-    if (slot.className) throw new Error("이미 직업을 선택했습니다.");
-    if (!CLASS_NAMES.includes(className)) {
-      throw new Error(`알 수 없는 직업: ${className}`);
-    }
-
-    const isFirstPick = senderId === this.firstPickId;
-    const other = this.getOtherSlot(senderId);
-
-    if (!isFirstPick && !other?.className) {
-      throw new Error("선픽이 먼저 선택해야 합니다.");
-    }
-    if (other?.className === className) {
-      throw new Error("미러전 금지. 다른 직업을 선택하세요.");
-    }
-
-    slot.className = className;
-    this.broadcastRoom();
-
-    if (isFirstPick) {
-      const otherId = this.getOtherId(senderId);
-      if (otherId) this.sendClassOptions(otherId);
-    } else {
-      this.startBoonPick();
-    }
-  }
-
-  // =========================================================
-  // 매치 시퀀스: 부운 픽
-  // =========================================================
-
-  private startBoonPick() {
-    this.phase = "pick_boon";
-    const rng = createRng(Date.now() ^ this.slots.size);
-    const boons = getAllBoons();
-
-    for (const slot of this.slots.values()) {
-      const options = rng.sample(boons, 3).map((b) => b.id);
-      slot.boonOptions = options;
-      slot.boonRerollsLeft = slot.className === "gambler" ? 1 : 0;
-      this.sendToId(slot.connectionId, {
-        type: "boon_options",
-        options,
-      });
-    }
-
-    this.broadcastRoom();
-  }
-
-  private handleRerollBoon(senderId: string) {
-    if (this.phase !== "pick_boon") {
-      throw new Error("지금은 행운아이템 선택 단계가 아닙니다.");
-    }
-    const slot = this.slots.get(senderId);
-    if (!slot) throw new Error("방에 참가하지 않았습니다.");
-    if (slot.className !== "gambler") {
-      throw new Error("리롤은 도박사 패시브입니다.");
-    }
-    if (slot.boonId) throw new Error("이미 행운아이템을 선택했습니다.");
-    if (slot.boonRerollsLeft <= 0) {
-      throw new Error("리롤 횟수가 남아있지 않습니다.");
-    }
-    slot.boonRerollsLeft -= 1;
-
-    const rng = createRng(Date.now() ^ senderId.length);
-    const boons = getAllBoons();
-    const options = rng.sample(boons, 3).map((b) => b.id);
-    slot.boonOptions = options;
-
-    this.sendToId(slot.connectionId, {
-      type: "boon_options",
-      options,
-    });
-    this.broadcastRoom();
-  }
-
-  private handlePickBoon(senderId: string, boonId: string) {
-    if (this.phase !== "pick_boon") {
-      throw new Error("지금은 행운아이템 선택 단계가 아닙니다.");
-    }
-    const slot = this.slots.get(senderId);
-    if (!slot) throw new Error("방에 참가하지 않았습니다.");
-    if (slot.boonId) throw new Error("이미 행운아이템을 선택했습니다.");
-    if (!slot.boonOptions.includes(boonId)) {
-      throw new Error(`제시되지 않은 행운아이템: ${boonId}`);
-    }
-    try {
-      getBoonById(boonId);
-    } catch {
-      throw new Error(`존재하지 않는 행운아이템: ${boonId}`);
-    }
-
-    slot.boonId = boonId;
-    this.broadcastRoom();
-
-    const allPicked = [...this.slots.values()].every((s) => s.boonId);
-    if (allPicked) {
-      this.startBattle();
-    }
-  }
-
-  // =========================================================
-  // 매치 시퀀스: 전투 시작
-  // =========================================================
-
-  private startBattle() {
-    if (!this.firstPickId) throw new Error("선픽이 결정되지 않았습니다.");
-    const firstSlot = this.slots.get(this.firstPickId);
-    const secondSlot = this.getOtherSlot(this.firstPickId);
-    if (!firstSlot || !secondSlot) throw new Error("슬롯 부족.");
-    if (!firstSlot.className || !secondSlot.className) {
-      throw new Error("직업 미선택.");
-    }
-    if (!firstSlot.boonId || !secondSlot.boonId) {
-      throw new Error("행운아이템 미선택.");
-    }
-
-    const rng = createRng(Date.now());
-
-    firstSlot.player = new Player({
-      name: firstSlot.name,
-      className: firstSlot.className,
-      boon: getBoonById(firstSlot.boonId),
-      seed: rng.randint(0, 2 ** 30),
-    });
-    secondSlot.player = new Player({
-      name: secondSlot.name,
-      className: secondSlot.className,
-      boon: getBoonById(secondSlot.boonId),
-      seed: rng.randint(0, 2 ** 30),
-    });
-
-    this.game = new Game(
-      firstSlot.player,
-      secondSlot.player,
-      undefined,
-      undefined,
-      { seed: rng.randint(0, 2 ** 30) },
+  private startMatch() {
+    const [p1Id, p2Id] = this.slotOrder;
+    if (!p1Id || !p2Id) return;
+    const p1 = this.slots.get(p1Id)!;
+    const p2 = this.slots.get(p2Id)!;
+    this.engine = new MatchEngine(
+      p1Id,
+      p2Id,
+      { p1: p1.name, p2: p2.name },
+      this.makeHooks(),
     );
-
-    this.phase = "battle";
-    this.broadcastRoom();
-
-    this.startTurn();
-  }
-
-  // =========================================================
-  // 전투: 턴 진행
-  // =========================================================
-
-  private startTurn() {
-    if (!this.game) return;
-    this.game.turn += 1;
-    const current = this.game.current;
-    const opponent = this.game.opponentOf(current);
-
-    current.beginTurn();
-    current.fillHand();
-    this.cardsUsedThisTurn = 0;
-
-    // 컨트롤러(워든) 패시브: 이미 침묵된 카드(W3 등)는 후보에서 제외 → 항상 새 카드 1장 추가 침묵
-    if (opponent.className === "warden" && current.hand.length > 0) {
-      const candidates = current.hand.filter(
-        (c) => !current.silencedCards.includes(c.id),
-      );
-      if (candidates.length > 0) {
-        const silenced = this.game.rng.choice(candidates);
-        current.silencedCards.push(silenced.id);
-      }
-    }
-
-    if (this.checkBattleEnd()) return;
-
-    this.sendHandsToAll();
-
-    const activeId = this.getActiveConnectionId();
-    if (activeId) {
-      this.broadcastAll({
-        type: "turn_changed",
-        activeId,
-        turn: this.game.turn,
-      });
-    }
-    this.broadcastRoom();
-  }
-
-  private handlePlayCard(senderId: string, cardId: string, bet: number) {
-    if (this.phase !== "battle" || !this.game) {
-      throw new Error("지금은 전투 단계가 아닙니다.");
-    }
-    const slot = this.slots.get(senderId);
-    if (!slot || !slot.player) throw new Error("참가하지 않았습니다.");
-    if (this.game.current !== slot.player) {
-      throw new Error("당신 턴이 아닙니다.");
-    }
-    if (this.cardsUsedThisTurn >= slot.player.maxCardsPerTurn()) {
-      throw new Error("이번 턴 카드 사용 가능 횟수를 초과했습니다.");
-    }
-
-    const card = slot.player.hand.find((c) => c.id === cardId);
-    if (!card) throw new Error(`손패에 ${cardId} 가 없습니다.`);
-
-    const opponent = this.game.opponentOf(slot.player);
-
-    // 룰렛 연출용 — executeCard 전 스냅샷 (소모성 버프 반영된 실제 판정 수치)
-    const clampedBet = Math.max(0, Math.min(bet, card.maxBet));
-    const accUsed =
-      card.type === "hit" || card.type === "crit"
-        ? computeHitAccuracy(card, slot.player, opponent, clampedBet)
-        : card.type === "fixed"
-          ? 100
-          : undefined;
-    const critChanceUsed =
-      card.type === "crit"
-        ? computeCritChance(card, slot.player, opponent, clampedBet)
-        : undefined;
-
-    let result;
-    try {
-      result = executeCard(card, slot.player, opponent, {
-        bet,
-        gameTurn: this.game.turn,
-        rng: this.game.rng,
-      });
-    } catch (err) {
-      if (err instanceof InvalidPlayError) {
-        throw new Error(err.message);
-      }
-      throw err;
-    }
-    slot.player.discard(card);
-    this.cardsUsedThisTurn += 1;
-
-    this.broadcastAll({
-      type: "card_played",
-      by: slot.connectionId,
-      cardId: card.id,
-      cardName: card.name,
-      bet: result.bet,
-      success: result.success,
-      critical: result.critical,
-      damageToOpponent: result.damageToOpponent,
-      damageToSelf: result.damageToSelf,
-      heal: result.heal,
-      shieldGained: result.shieldGained,
-      notes: result.notes,
-      jackpotRoll: result.jackpotRoll,
-      accUsed,
-      critChanceUsed,
-      bluffChance: result.bluffChance,
-      bluffTriggered: result.bluffTriggered,
-      dodgeChance: result.dodgeChance,
-      dodged: result.dodged,
-    });
-
-    this.sendHandsToAll();
-    this.broadcastRoom();
-
-    if (this.checkBattleEnd()) return;
-  }
-
-  private handleEndTurn(senderId: string) {
-    if (this.phase !== "battle" || !this.game) {
-      throw new Error("지금은 전투 단계가 아닙니다.");
-    }
-    const slot = this.slots.get(senderId);
-    if (!slot || !slot.player) throw new Error("참가하지 않았습니다.");
-    if (this.game.current !== slot.player) {
-      throw new Error("당신 턴이 아닙니다.");
-    }
-    this.finishCurrentTurn();
-  }
-
-  private finishCurrentTurn() {
-    if (!this.game) return;
-    const current = this.game.current;
-    current.endTurn();
-
-    if (this.checkBattleEnd()) return;
-
-    this.game.current = this.game.opponentOf(current);
-    this.startTurn();
-  }
-
-  private checkBattleEnd(): boolean {
-    if (!this.game) return false;
-    const { p1, p2 } = this.game;
-
-    if (!p1.isAlive() && !p2.isAlive()) {
-      this.endBattle(null, "mutual_hp_zero");
-      return true;
-    }
-    if (!p1.isAlive()) {
-      this.endBattle(p2, "hp_zero");
-      return true;
-    }
-    if (!p2.isAlive()) {
-      this.endBattle(p1, "hp_zero");
-      return true;
-    }
-    if (this.game.turn >= MAX_TURNS) {
-      if (p1.hp > p2.hp) this.endBattle(p1, "turn_limit");
-      else if (p2.hp > p1.hp) this.endBattle(p2, "turn_limit");
-      else this.endBattle(null, "turn_limit_draw");
-      return true;
-    }
-    return false;
-  }
-
-  private endBattle(winner: Player | null, reason: EndReason) {
-    this.phase = "ended";
-    this.winnerId = winner ? this.getConnectionIdOf(winner) : null;
-
-    const [p1Slot, p2Slot] = this.slotOrder
-      .map((id) => this.slots.get(id))
-      .filter((s): s is PlayerSlot => !!s);
-    const p1 = p1Slot?.player;
-    const p2 = p2Slot?.player;
-
-    this.broadcastAll({
-      type: "ended",
-      winnerId: this.winnerId,
-      reason,
-      p1Stats: toStats(p1Slot!, p1!),
-      p2Stats: toStats(p2Slot!, p2!),
-    });
-    this.broadcastRoom();
+    this.ended = false;
+    this.engine.startCoinToss();
   }
 
   private handleRematch(_senderId: string) {
-    if (this.phase !== "ended") {
+    if (!this.ended || !this.engine) {
       throw new Error("종료 상태에서만 재대전 가능");
     }
-    this.resetRoom();
+    this.engine = null;
+    this.ended = false;
     this.broadcastRoom();
     if (this.slots.size === MAX_PLAYERS_PER_ROOM) {
-      this.startCoinToss();
+      this.startMatch();
     }
   }
 
-  private handleViewPile(
-    senderId: string,
-    side: "me" | "opp",
-    kind: "deck" | "grave",
-  ) {
-    if (this.phase !== "battle") return;
-    const senderSlot = this.slots.get(senderId);
-    if (!senderSlot?.player) return;
-
-    if (side === "opp" && kind === "deck") {
-      this.sendToId(senderId, {
-        type: "pile",
-        side,
-        kind,
-        cardIds: null,
-      });
-      return;
-    }
-
-    const targetSlot =
-      side === "me" ? senderSlot : this.getOtherSlot(senderId);
-    if (!targetSlot?.player) return;
-
-    const source =
-      kind === "deck" ? targetSlot.player.deck : targetSlot.player.graveyard;
-    this.sendToId(senderId, {
-      type: "pile",
-      side,
-      kind,
-      cardIds: source.map((c) => c.id),
-    });
-  }
-
   // =========================================================
-  // 손패 전송
+  // MatchEngine hooks → 1:1 broadcast 매핑
   // =========================================================
 
-  private sendHandsToAll() {
-    for (const slot of this.slots.values()) {
-      if (slot.player) {
-        this.sendToId(slot.connectionId, {
-          type: "hand",
-          hand: slot.player.hand,
-          silenced: [...slot.player.silencedCards],
+  private makeHooks(): MatchEngineHooks {
+    return {
+      onPhaseChange: () => {
+        this.broadcastRoom();
+      },
+      onCoinToss: (firstPickId: string) => {
+        this.broadcastAll({ type: "coin_toss", firstPickId });
+        this.broadcastRoom();
+      },
+      onClassOptions: (playerId, disabled) => {
+        this.sendToId(playerId, { type: "class_options", disabled });
+      },
+      onBoonOptions: (playerId, options) => {
+        this.sendToId(playerId, { type: "boon_options", options });
+      },
+      onHand: (playerId, hand, silenced) => {
+        this.sendToId(playerId, { type: "hand", hand, silenced });
+      },
+      onCardPlayed: (evt: CardPlayedMsg) => {
+        this.broadcastAll(evt);
+      },
+      onTurnChanged: (activeId, turn) => {
+        this.broadcastAll({ type: "turn_changed", activeId, turn });
+      },
+      onPile: (playerId, payload) => {
+        this.sendToId(playerId, { type: "pile", ...payload });
+      },
+      onEnd: (
+        winnerId,
+        reason: EndReason,
+        p1Stats: PlayerStatsPublic,
+        p2Stats: PlayerStatsPublic,
+      ) => {
+        this.ended = true;
+        this.broadcastAll({
+          type: "ended",
+          winnerId,
+          reason,
+          p1Stats,
+          p2Stats,
         });
-      }
-    }
-  }
-
-  private getConnectionIdOf(player: Player): string | null {
-    for (const [id, slot] of this.slots) {
-      if (slot.player === player) return id;
-    }
-    return null;
+        this.broadcastRoom();
+      },
+    };
   }
 
   // =========================================================
@@ -672,88 +320,42 @@ export class Room extends DurableObject<Env> {
   // =========================================================
 
   private broadcastRoom() {
-    const players: PlayerPublic[] = this.slotOrder
-      .map((id) => this.slots.get(id))
-      .filter((s): s is PlayerSlot => !!s)
-      .map((s) => this.toPublic(s));
+    let players: PlayerPublic[];
+    let firstPickId: string | null = null;
+    let activeId: string | null = null;
+    let turn = 0;
+
+    if (this.engine) {
+      players = this.engine.getPlayerPublics();
+      firstPickId = this.engine.firstPick;
+      activeId = this.engine.getActivePlayerId();
+      turn = this.engine.getTurn();
+    } else {
+      players = this.slotOrder
+        .map((id) => this.slots.get(id))
+        .filter((s): s is RoomSlot => !!s)
+        .map((s) => emptyPublic(s));
+    }
 
     this.broadcastAll({
       type: "room",
-      phase: this.phase,
+      phase: this.phaseFor(),
       players,
-      firstPickId: this.firstPickId,
-      activeId: this.game ? this.getActiveConnectionId() : null,
-      turn: this.game?.turn ?? 0,
+      firstPickId,
+      activeId,
+      turn,
     });
   }
 
-  private toPublic(slot: PlayerSlot): PlayerPublic {
-    const p = slot.player;
-    return {
-      connectionId: slot.connectionId,
-      name: slot.name,
-      ready: true,
-      className: slot.className,
-      boonId: slot.boonId,
-      boonRerollsLeft: slot.boonRerollsLeft,
-      hp: p?.hp ?? 100,
-      maxHp: p?.maxHp ?? 100,
-      shield: p?.shield ?? 0,
-      handCount: p?.hand.length ?? 0,
-      deckCount: p?.deck.length ?? 0,
-      graveyardCount: p?.graveyard.length ?? 0,
-      maxCardsPerTurn: p?.maxCardsPerTurn() ?? 2,
-      totalBet: p?.totalBet ?? 0,
-      totalDamageTaken: p?.totalDamageTaken ?? 0,
-      missedLastTurn: p?.missedLastTurn ?? false,
-      hitLastTurn: p?.hitLastTurn ?? false,
-      statuses: {
-        poisonTurns: p?.poisonTurns ?? 0,
-        poisonDamage: p?.poisonDamage ?? 0,
-        rageStacks: p?.rageStacks ?? 0,
-        berserkTurns: p?.berserkTurns ?? 0,
-        berserkAccBonus: p?.berserkAccBonus ?? 0,
-        berserkDamageBonus: p?.berserkDamageBonus ?? 0,
-        incomingDamageMult: p?.incomingDamageMult ?? 1.0,
-        incomingDamageMultTurns: p?.incomingDamageMultTurns ?? 0,
-        betCapOverride: p?.betCapOverride ?? null,
-        betCapOverrideTurns: p?.betCapOverrideTurns ?? 0,
-        nextAccBonus: p?.nextAccBonus ?? 0,
-        nextCritBonus: p?.nextCritBonus ?? 0,
-        guaranteeNextCrit: p?.guaranteeNextCrit ?? false,
-        dodgeNextPercent: p?.dodgeNextPercent ?? 0,
-        nextAttackMissChance: p?.nextAttackMissChance ?? 0,
-        silencedCardCount: p?.silencedCards.length ?? 0,
-        sigUsedIds: p ? Array.from(p.sigUsedIds) : [],
-        sigUsedThisTurn: p?.sigUsedThisTurn ?? false,
-      },
-    };
-  }
-
-  private getActiveConnectionId(): string | null {
-    if (!this.game) return null;
-    const active = this.game.current;
-    for (const [id, slot] of this.slots) {
-      if (slot.player === active) return id;
-    }
-    return null;
+  private phaseFor(): Phase {
+    if (!this.engine) return "lobby";
+    if (this.ended) return "ended";
+    return this.engine.phase;
   }
 
   // =========================================================
   // 유틸
   // =========================================================
-
-  private getOtherId(connectionId: string): string | null {
-    for (const id of this.slotOrder) {
-      if (id !== connectionId) return id;
-    }
-    return null;
-  }
-
-  private getOtherSlot(connectionId: string): PlayerSlot | null {
-    const other = this.getOtherId(connectionId);
-    return other ? (this.slots.get(other) ?? null) : null;
-  }
 
   private sendToId(connectionId: string, msg: ServerMsg) {
     const ws = this.conns.get(connectionId);
@@ -793,15 +395,45 @@ function trimName(name: string | undefined): string {
   return (name ?? "").trim().slice(0, 16);
 }
 
-function toStats(slot: PlayerSlot, p: Player): PlayerStatsPublic {
+/** lobby 단계 — engine 없을 때 슬롯 → 빈 PlayerPublic */
+function emptyPublic(slot: RoomSlot): PlayerPublic {
   return {
     connectionId: slot.connectionId,
     name: slot.name,
-    totalBet: p.totalBet,
-    totalDamageDealt: p.totalDamageDealt,
-    totalDamageTaken: p.totalDamageTaken,
-    critCount: p.critCount,
-    missCount: p.missCount,
-    finalHp: p.hp,
+    ready: true,
+    className: null,
+    boonId: null,
+    boonRerollsLeft: 0,
+    hp: 100,
+    maxHp: 100,
+    shield: 0,
+    handCount: 0,
+    deckCount: 0,
+    graveyardCount: 0,
+    maxCardsPerTurn: 2,
+    totalBet: 0,
+    totalDamageTaken: 0,
+    missedLastTurn: false,
+    hitLastTurn: false,
+    statuses: {
+      poisonTurns: 0,
+      poisonDamage: 0,
+      rageStacks: 0,
+      berserkTurns: 0,
+      berserkAccBonus: 0,
+      berserkDamageBonus: 0,
+      incomingDamageMult: 1.0,
+      incomingDamageMultTurns: 0,
+      betCapOverride: null,
+      betCapOverrideTurns: 0,
+      nextAccBonus: 0,
+      nextCritBonus: 0,
+      guaranteeNextCrit: false,
+      dodgeNextPercent: 0,
+      nextAttackMissChance: 0,
+      silencedCardCount: 0,
+      sigUsedIds: [],
+      sigUsedThisTurn: false,
+    },
   };
 }

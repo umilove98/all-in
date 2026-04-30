@@ -1,7 +1,8 @@
 /**
  * Main Scene — 사이트 진입.
  * design handoff (Main.html / MainScene.jsx) 1:1 포팅. 클래스명/DOM 구조는 원본
- * 과 동일하고, onCreate/onJoin 은 실제 app.navigateToRoom 으로 연결된다.
+ * 과 동일하고, onCreate/onJoin 은 실제 app.navigateToRoom / navigateToTournament
+ * 로 연결된다. 모드 탭(1:1 빠른 매치 / 토너먼트) 추가.
  */
 
 import { App } from "../app";
@@ -11,15 +12,25 @@ import { ensureStage, sceneChromeHtml, teardownStage } from "./sceneStage";
 const ACTIVE_CLASS = "main-active";
 const IGNITION_MS = 1050;
 
+type Mode = "duel" | "tournament";
+
 export function renderLobby(root: HTMLElement, app: App): void {
   const stage = ensureStage(root, ACTIVE_CLASS);
 
   let code = "";
+  let mode: Mode = "duel";
   let igniting = false;
 
   const render = () => {
     const trimmed = code.trim().toUpperCase();
     const canJoin = trimmed.length > 0;
+    const createLabel = mode === "tournament" ? "새 토너먼트" : "새 방 만들기";
+    const joinLabel = mode === "tournament" ? "토너먼트 코드 입력" : "방 코드 입력";
+    const helper = canJoin
+      ? mode === "tournament"
+        ? "입력한 토너먼트에 참가한다"
+        : "입력한 방에 입장한다"
+      : " ";
     stage.innerHTML = `
       <div class="sceneRoot mainRoot${igniting ? " igniting" : ""}">
         ${sceneChromeHtml()}
@@ -36,11 +47,16 @@ export function renderLobby(root: HTMLElement, app: App): void {
             <div class="mainTagline">${"\n"}</div>
           </div>
 
+          <div class="mainModeTabs">
+            <button type="button" id="mainModeDuel" class="mainModeTab ${mode === "duel" ? "active" : ""}">1:1 빠른 매치</button>
+            <button type="button" id="mainModeTournament" class="mainModeTab ${mode === "tournament" ? "active" : ""}">토너먼트</button>
+          </div>
+
           <div class="mainActions">
             <form class="mainCreateWrap" id="mainCreateForm">
               <button type="submit" class="mainCreateBtn">
                 <span class="smGlyph">❦</span>
-                <span>새 방 만들기</span>
+                <span>${createLabel}</span>
                 <span class="smGlyph">❦</span>
               </button>
               <div class="mainCreateSub">${"\n"}</div>
@@ -53,7 +69,7 @@ export function renderLobby(root: HTMLElement, app: App): void {
             </div>
 
             <form class="mainInputWrap" id="mainJoinForm">
-              <div class="mainInputLabel">방 코드 입력</div>
+              <div class="mainInputLabel">${joinLabel}</div>
               <div class="mainInputRow">
                 <input
                   id="mainCode"
@@ -73,14 +89,14 @@ export function renderLobby(root: HTMLElement, app: App): void {
                   <span>입장</span>
                 </button>
               </div>
-              <div class="mainHelper">${canJoin ? "입력한 방에 입장한다" : " "}</div>
+              <div class="mainHelper">${helper}</div>
             </form>
           </div>
         </div>
 
         <div class="mainFoot">
           <span>v0·1</span>
-          <span>2P DUEL</span>
+          <span>${mode === "tournament" ? "2~16P TOURNAMENT" : "2P DUEL"}</span>
           <span>3 MIN</span>
           <span>HP·BET</span>
         </div>
@@ -96,7 +112,6 @@ export function renderLobby(root: HTMLElement, app: App): void {
         .toUpperCase()
         .replace(/[^A-Z0-9]/g, "")
         .slice(0, 6);
-      // 부분 업데이트: disabled 상태와 helper 만 바꾼다 (전체 re-render 하면 focus 유실)
       const trimmed = code.trim();
       const canJoin = trimmed.length > 0;
       if (input.value !== code) input.value = code;
@@ -106,17 +121,42 @@ export function renderLobby(root: HTMLElement, app: App): void {
         btn.classList.toggle("disabled", !canJoin);
       }
       const helper = stage.querySelector<HTMLElement>(".mainHelper");
-      if (helper) helper.textContent = canJoin ? "입력한 방에 입장한다" : " ";
+      if (helper) {
+        helper.textContent = canJoin
+          ? mode === "tournament"
+            ? "입력한 토너먼트에 참가한다"
+            : "입력한 방에 입장한다"
+          : " ";
+      }
     });
+
+    stage
+      .querySelector<HTMLButtonElement>("#mainModeDuel")
+      ?.addEventListener("click", () => {
+        if (mode === "duel") return;
+        mode = "duel";
+        render();
+      });
+    stage
+      .querySelector<HTMLButtonElement>("#mainModeTournament")
+      ?.addEventListener("click", () => {
+        if (mode === "tournament") return;
+        mode = "tournament";
+        render();
+      });
 
     stage
       .querySelector<HTMLFormElement>("#mainCreateForm")
       ?.addEventListener("submit", (e) => {
         e.preventDefault();
         trigger(() => {
-          const roomCode = generateRoomCode();
+          const newCode = generateRoomCode();
           teardownStage(root, ACTIVE_CLASS);
-          app.navigateToRoom(roomCode);
+          if (mode === "tournament") {
+            app.navigateToTournament(newCode);
+          } else {
+            app.navigateToRoom(newCode);
+          }
         });
       });
 
@@ -128,7 +168,11 @@ export function renderLobby(root: HTMLElement, app: App): void {
         if (!trimmed) return;
         trigger(() => {
           teardownStage(root, ACTIVE_CLASS);
-          app.navigateToRoom(trimmed);
+          if (mode === "tournament") {
+            app.navigateToTournament(trimmed);
+          } else {
+            app.navigateToRoom(trimmed);
+          }
         });
       });
   };

@@ -238,13 +238,13 @@ function wireHandlers(stage: HTMLElement, app: App): void {
       if (btn.disabled) return;
       if (transitionStartedAt) return;
       const id = btn.getAttribute("data-id")!;
-      app.state.client?.send({ type: "pick_boon", boonId: id });
+      app.sendGameMsg({ type: "pick_boon", boonId: id });
     });
   });
   stage
     .querySelector<HTMLButtonElement>("#draftReroll")
     ?.addEventListener("click", () => {
-      app.state.client?.send({ type: "reroll_boon" });
+      app.sendGameMsg({ type: "reroll_boon" });
     });
 }
 
@@ -333,7 +333,7 @@ function updateReroll(stage: HTMLElement, app: App): void {
   right
     .querySelector<HTMLButtonElement>("#draftReroll")
     ?.addEventListener("click", () => {
-      app.state.client?.send({ type: "reroll_boon" });
+      app.sendGameMsg({ type: "reroll_boon" });
     });
 }
 
@@ -429,7 +429,7 @@ function autoPickBoon(app: App): void {
   const options = app.state.boonOptions;
   if (options.length === 0) return;
   const pick = options[Math.floor(Math.random() * options.length)]!;
-  app.state.client?.send({ type: "pick_boon", boonId: pick });
+  app.sendGameMsg({ type: "pick_boon", boonId: pick });
 }
 
 // =====================================================================

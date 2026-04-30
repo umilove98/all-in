@@ -1500,7 +1500,7 @@ function startTurnTimer(app: App): void {
       }
       // 만료 시 내 턴이면 자동으로 end_turn 전송
       if (app.state.activeId === app.state.myId && app.state.phase === "battle") {
-        app.state.client?.send({ type: "end_turn" });
+        app.sendGameMsg({ type: "end_turn" });
       }
     }
   };
@@ -2224,7 +2224,7 @@ function wire(
     "click",
     () => {
       if (app.state.activeId !== app.state.myId) return;
-      app.state.client?.send({ type: "end_turn" });
+      app.sendGameMsg({ type: "end_turn" });
     },
   );
 
@@ -2239,7 +2239,7 @@ function wire(
         cardIds: null,
         loading: true,
       };
-      app.state.client?.send({ type: "view_pile", side: whose, kind });
+      app.sendGameMsg({ type: "view_pile", side: whose, kind });
       app.render();
     });
   });
@@ -2317,7 +2317,7 @@ function wire(
     ?.addEventListener("click", () => {
       const id = app.state.selectedCardId;
       if (!id) return;
-      app.state.client?.send({
+      app.sendGameMsg({
         type: "play_card",
         cardId: id,
         bet: app.state.pendingBet,
@@ -2558,7 +2558,7 @@ function finishDrag(app: App) {
   const override = me.statuses.betCapOverride;
   const cap = Math.min(st.card.maxBet, hpMinus1, override ?? st.card.maxBet);
   if (cap === 0) {
-    app.state.client?.send({
+    app.sendGameMsg({
       type: "play_card",
       cardId: st.card.id,
       bet: 0,

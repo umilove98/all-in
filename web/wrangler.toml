@@ -14,14 +14,23 @@ binding = "ASSETS"
 not_found_handling = "single-page-application"
 run_worker_first = true
 
-# Room Durable Object — 방 1개 = DO 인스턴스 1개
+# Room Durable Object — 방 1개 = DO 인스턴스 1개 (1:1 빠른 매치)
 [[durable_objects.bindings]]
 name = "ROOMS"
 class_name = "Room"
 
+# TournamentRoom Durable Object — 토너먼트 1개 = DO 인스턴스 1개 (2~16인)
+[[durable_objects.bindings]]
+name = "TOURNAMENTS"
+class_name = "TournamentRoom"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Room"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["TournamentRoom"]
 
 # Workers Logs — 에러 스택 보려면 Observability 켜야 함 (무료 tier 에서도 가능)
 [observability]

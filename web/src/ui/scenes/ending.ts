@@ -50,7 +50,7 @@ export function renderEndingScene(
   stage
     .querySelector<HTMLButtonElement>("#endRematch")
     ?.addEventListener("click", () => {
-      app.state.client?.send({ type: "rematch" });
+      app.sendGameMsg({ type: "rematch" });
       // 클라 쪽 battle 상태 선제 정리 — 서버 room 브로드캐스트 도착 전에 UI 잔상 제거
       app.state.plays = [];
       app.state.hand = [];
