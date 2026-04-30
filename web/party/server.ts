@@ -461,16 +461,19 @@ export default class AllinServer implements Party.Server {
     // 전에 스냅샷. 소모성 버프(nextAccBonus 등)가 executeCard 중 0 으로 리셋되므로
     // 반드시 사전 계산.
     const clampedBet = Math.max(0, Math.min(bet, card.maxBet));
-    const accUsed =
-      card.type === "hit" || card.type === "crit"
+    const isCritCard = card.type === "crit";
+    const hitAcc =
+      isCritCard || card.type === "hit"
         ? computeHitAccuracy(card, slot.player, opponent, clampedBet)
-        : card.type === "fixed"
-          ? 100
-          : undefined;
-    const critChanceUsed =
-      card.type === "crit"
-        ? computeCritChance(card, slot.player, opponent, clampedBet)
         : undefined;
+    const accUsed =
+      hitAcc ?? (card.type === "fixed" ? 100 : undefined);
+    // 마크된 운명(guaranteeNextCrit) 발동 시: hit 성공 영역 전체를 크리 영역으로 표시.
+    const critChanceUsed = isCritCard
+      ? slot.player.guaranteeNextCrit
+        ? hitAcc
+        : computeCritChance(card, slot.player, opponent, clampedBet)
+      : undefined;
 
     let result;
     try {
